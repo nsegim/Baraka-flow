@@ -1,0 +1,214 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client"
+  output   = "../lib/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+
+
+// ─────────────────────────────────────────
+// BUSINESS
+// Every company that signs up gets one Business record
+// This is what makes BarakaFlow multi-tenant —
+// each business only sees their own data
+// ─────────────────────────────────────────
+model Business {
+  id        String   @id @default(cuid())
+  name      String
+  email     String   @unique
+  phone     String?
+  address   String?
+  currency  String   @default("RWF")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // A business has many of these:
+  users      User[]
+  products   Product[]
+  orders     Order[]
+  suppliers  Supplier[]
+  categories Category[]
+}
+
+// ─────────────────────────────────────────
+// USER
+// People who log into BarakaFlow
+// One business can have multiple users (owner, staff, accountant)
+// ─────────────────────────────────────────
+model User {
+  id         String   @id @default(cuid())
+  name       String
+  email      String   @unique
+  password   String   // stored as a hash — never plain text
+  role       Role     @default(STAFF)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  // Which business this user belongs to
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id])
+
+  // A user can create many orders
+  orders     Order[]
+}
+
+// User roles — owner has full access, staff has limited access
+enum Role {
+  OWNER
+  MANAGER
+  STAFF
+}
+
+// ─────────────────────────────────────────
+// CATEGORY
+// Organizes products — e.g. "Bedroom", "Office", "Living Room"
+// Specific to furniture businesses like those in Mugakiriro
+// ─────────────────────────────────────────
+model Category {
+  id         String    @id @default(cuid())
+  name       String
+  createdAt  DateTime  @default(now())
+
+  businessId String
+  business   Business  @relation(fields: [businessId], references: [id])
+
+  products   Product[]
+}
+
+// ─────────────────────────────────────────
+// SUPPLIER
+// Where products come from — China, Dubai, local
+// ─────────────────────────────────────────
+model Supplier {
+  id          String    @id @default(cuid())
+  name        String
+  email       String?
+  phone       String?
+  country     String?   // "China", "Dubai", "Rwanda"
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  businessId  String
+  business    Business  @relation(fields: [businessId], references: [id])
+
+  products    Product[]
+}
+
+// ─────────────────────────────────────────
+// PRODUCT
+// The core of BarakaFlow — every item in the warehouse
+// ─────────────────────────────────────────
+model Product {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  sku         String?  // Stock Keeping Unit — unique product code
+  price       Float    // selling price
+  costPrice   Float?   // what you paid for it (import cost)
+  stock       Int      @default(0)  // current quantity in warehouse
+  minStock    Int      @default(5)  // alert threshold
+  unit        String   @default("piece") // "piece", "set", "pair"
+  imageUrl    String?
+  origin      String?  // "China", "Dubai", "Local"
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relationships
+  businessId  String
+  business    Business  @relation(fields: [businessId], references: [id])
+
+  categoryId  String?
+  category    Category? @relation(fields: [categoryId], references: [id])
+
+  supplierId  String?
+  supplier    Supplier? @relation(fields: [supplierId], references: [id])
+
+  orderItems  OrderItem[]
+  stockMovements StockMovement[]
+}
+
+// ─────────────────────────────────────────
+// ORDER
+// A sale to a client
+// ─────────────────────────────────────────
+model Order {
+  id           String      @id @default(cuid())
+  orderNumber  String      @unique // e.g. "ORD-2025-001"
+  customerName String
+  customerPhone String?
+  status       OrderStatus @default(PENDING)
+  totalAmount  Float
+  notes        String?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  businessId   String
+  business     Business    @relation(fields: [businessId], references: [id])
+
+  userId       String
+  user         User        @relation(fields: [userId], references: [id])
+
+  // An order contains multiple products
+  items        OrderItem[]
+}
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  DELIVERED
+  CANCELLED
+}
+
+// ─────────────────────────────────────────
+// ORDER ITEM
+// Each individual product line within an order
+// Example: Order #001 has 2x Sofa + 1x Coffee Table
+// That's two OrderItem records
+// ─────────────────────────────────────────
+model OrderItem {
+  id        String  @id @default(cuid())
+  quantity  Int
+  unitPrice Float   // price at time of sale (prices can change)
+
+  orderId   String
+  order     Order   @relation(fields: [orderId], references: [id])
+
+  productId String
+  product   Product @relation(fields: [productId], references: [id])
+}
+
+// ─────────────────────────────────────────
+// STOCK MOVEMENT
+// Every time stock changes — this records WHO did it, WHEN, and WHY
+// This is how you catch staff stealing stock
+// Every addition, removal, or adjustment is permanently logged
+// ─────────────────────────────────────────
+model StockMovement {
+  id        String         @id @default(cuid())
+  type      MovementType
+  quantity  Int            // positive = stock added, negative = stock removed
+  reason    String?        // "New import from China", "Damaged goods", "Sale"
+  createdAt DateTime       @default(now())
+
+  productId String
+  product   Product        @relation(fields: [productId], references: [id])
+}
+
+enum MovementType {
+  IMPORT      // new stock arrived from supplier
+  SALE        // sold to customer
+  ADJUSTMENT  // manual correction
+  DAMAGE      // damaged/lost goods
+  RETURN      // customer returned item
+}
