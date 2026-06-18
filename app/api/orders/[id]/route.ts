@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { UpdateOrderStatusSchema } from "@/lib/validators"
 import { serialize } from "@/lib/serialize"
+import { createNotification } from "@/lib/notify"
 
 const ORDER_INCLUDE = {
   items:    { include: { product: true } },
@@ -105,6 +106,43 @@ export async function PATCH(
 
     } else {
       await prisma.order.update({ where: { id }, data: { status } })
+    }
+
+    // Notifications — fire-and-forget
+    if (status === "DELIVERED") {
+      createNotification(
+        session.user.businessId,
+        "ORDER_DELIVERED",
+        `Order Delivered — ${existing.orderNumber}`,
+        `${existing.customerName}'s order has been marked as delivered`,
+        "/orders",
+      )
+      // Check for any products that dropped below minStock after stock deduction
+      const lowStock = await prisma.product.findMany({
+        where: {
+          businessId: session.user.businessId,
+          id: { in: existing.items.map(i => i.productId) },
+        },
+        select: { name: true, stock: true, minStock: true },
+      })
+      const flagged = lowStock.filter(p => p.stock <= p.minStock)
+      if (flagged.length > 0) {
+        createNotification(
+          session.user.businessId,
+          "LOW_STOCK",
+          `Low Stock Alert — ${flagged.length} product${flagged.length > 1 ? "s" : ""}`,
+          flagged.map(p => `${p.name} (${p.stock} left)`).join(", "),
+          "/stock-alerts",
+        )
+      }
+    } else if (status === "CANCELLED") {
+      createNotification(
+        session.user.businessId,
+        "ORDER_CANCELLED",
+        `Order Cancelled — ${existing.orderNumber}`,
+        `${existing.customerName}'s order was cancelled`,
+        "/orders",
+      )
     }
 
     const updated = await prisma.order.findFirst({

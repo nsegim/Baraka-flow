@@ -29,6 +29,7 @@ model Business {
   creditNotes     CreditNote[]
   customers       Customer[]
   expenses        Expense[]
+  notifications   Notification[]
   orders          Order[]
   products        Product[]
   purchaseOrders  PurchaseOrder[]
@@ -284,6 +285,30 @@ model CreditNote {
   @@index([businessId])
   @@index([customerId])
   @@index([businessId, createdAt])
+}
+
+model Notification {
+  id         String           @id @default(cuid())
+  type       NotificationType
+  title      String
+  message    String
+  link       String?
+  isRead     Boolean          @default(false)
+  createdAt  DateTime         @default(now())
+  businessId String
+  business   Business         @relation(fields: [businessId], references: [id])
+
+  @@index([businessId, isRead])
+  @@index([businessId, createdAt])
+}
+
+enum NotificationType {
+  NEW_ORDER
+  ORDER_DELIVERED
+  ORDER_CANCELLED
+  LOW_STOCK
+  PAYMENT_RECEIVED
+  ORDER_RETURNED
 }
 
 enum BusinessStatus {

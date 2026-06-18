@@ -99,7 +99,7 @@ export default function OrderModal({
           ...item,
           productId:   value as string,
           productName: product?.name || "",
-          unitPrice:   product?.price || 0,
+          unitPrice:   parseFloat(String(product?.price ?? 0)) || 0,
         }
       }
 

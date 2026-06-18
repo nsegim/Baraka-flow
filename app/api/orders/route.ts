@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma"
 import { CreateOrderSchema } from "@/lib/validators"
 import { serialize } from "@/lib/serialize"
 import { sendOrderConfirmation } from "@/lib/email"
+import { createNotification } from "@/lib/notify"
 
 // GET /api/orders — paginated
 export async function GET(request: NextRequest) {
@@ -162,6 +163,15 @@ export async function POST(request: NextRequest) {
       where:  { id: session.user.businessId },
       select: { name: true, email: true },
     }).catch(() => null)
+
+    // NEW_ORDER notification
+    createNotification(
+      session.user.businessId,
+      "NEW_ORDER",
+      `New Order — ${orderNumber}`,
+      `${customerName} · RWF ${totalAmount.toLocaleString()}`,
+      "/orders",
+    )
 
     if (business?.email) {
       sendOrderConfirmation({

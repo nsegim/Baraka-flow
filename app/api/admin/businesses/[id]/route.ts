@@ -98,6 +98,7 @@ export async function DELETE(
     prisma.creditNote.deleteMany({ where: { businessId: id } }),
     prisma.customer.deleteMany({ where: { businessId: id } }),
     prisma.expense.deleteMany({ where: { businessId: id } }),
+    prisma.notification.deleteMany({ where: { businessId: id } }),
     prisma.user.deleteMany({ where: { businessId: id } }),
     prisma.business.delete({ where: { id } }),
   ])

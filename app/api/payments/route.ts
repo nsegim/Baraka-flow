@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { CreatePaymentSchema } from "@/lib/validators"
 import { serialize } from "@/lib/serialize"
+import { createNotification } from "@/lib/notify"
 
 // POST /api/payments — record a payment against an order
 export async function POST(request: NextRequest) {
@@ -57,6 +58,14 @@ export async function POST(request: NextRequest) {
         },
       }),
     ])
+
+    createNotification(
+      session.user.businessId,
+      "PAYMENT_RECEIVED",
+      `Payment Received — ${order.orderNumber}`,
+      `RWF ${amount.toLocaleString()} via ${method.replace("_", " ")} · Status: ${paymentStatus}`,
+      "/orders",
+    )
 
     return NextResponse.json(serialize(payment), { status: 201 })
 

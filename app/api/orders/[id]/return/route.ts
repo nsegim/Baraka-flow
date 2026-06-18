@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { serialize } from "@/lib/serialize"
+import { createNotification } from "@/lib/notify"
 import { z } from "zod"
 import { randomUUID } from "crypto"
 
@@ -109,6 +110,14 @@ export async function POST(
         // Credit note table may not exist yet — return succeeds regardless
       }
     }
+
+    createNotification(
+      session.user.businessId,
+      "ORDER_RETURNED",
+      `Order Returned — ${order.orderNumber}`,
+      `${order.customerName} · Reason: ${reason}`,
+      "/orders",
+    )
 
     const updated = await prisma.order.findFirst({
       where:   { id },
