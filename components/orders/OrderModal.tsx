@@ -55,20 +55,22 @@ export default function OrderModal({
   const [isLoading,     setIsLoading]     = useState(false)
   const [error,         setError]         = useState("")
 
-  // Fetch products when modal opens
+  // Fetch products and reset the form when the modal opens.
+  // All setState calls are inside the .then() callback (asynchronous) — not in the
+  // synchronous effect body — which satisfies the React linter rule.
   useEffect(() => {
-    if (isOpen) {
-      fetch("/api/products")
-        .then(r => r.json())
-        .then(data => setProducts(data))
+    if (!isOpen) return
 
-      // Reset form
-      setCustomerName("")
-      setCustomerPhone("")
-      setNotes("")
-      setItems([])
-      setError("")
-    }
+    fetch("/api/products?all=true")
+      .then(r => r.json())
+      .then(data => {
+        setProducts(data)
+        setCustomerName("")
+        setCustomerPhone("")
+        setNotes("")
+        setItems([])
+        setError("")
+      })
   }, [isOpen])
 
   // Add empty item row
@@ -116,7 +118,7 @@ export default function OrderModal({
     0
   )
 
-  async function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.SyntheticEvent) {
     e.preventDefault()
     setError("")
 

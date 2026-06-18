@@ -1,3 +1,4 @@
+import Link from "next/link"
 import { AlertTriangle } from "lucide-react"
 import { LowStockItem } from "@/types"
 
@@ -68,9 +69,9 @@ export default function LowStockAlert({ items }: LowStockAlertProps) {
 
       {/* Footer */}
       <div className="p-4 border-t border-[var(--border)]">
-        <button className="text-sm text-baraka-primary hover:text-baraka-dark font-medium transition-colors">
+        <Link href="/stock-alerts" className="text-sm text-baraka-primary hover:text-baraka-dark font-medium transition-colors">
           View all alerts →
-        </button>
+        </Link>
       </div>
     </div>
   )

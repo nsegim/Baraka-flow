@@ -49,25 +49,21 @@ export default function DashboardPage() {
   const [data,      setData]      = useState<DashboardData | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error,     setError]     = useState("")
-
-  async function fetchDashboard() {
-    try {
-      setIsLoading(true)
-      setError("")
-      const res  = await fetch("/api/dashboard")
-      if (!res.ok) throw new Error("Failed to fetch")
-      const json = await res.json()
-      setData(json)
-    } catch {
-      setError("Failed to load dashboard data")
-    } finally {
-      setIsLoading(false)
-    }
-  }
+  const [key,       setKey]       = useState(0)
 
   useEffect(() => {
-    fetchDashboard()
-  }, [])
+    fetch("/api/dashboard")
+      .then(r => r.json())
+      .then(json => {
+        setData(json)
+        setError("")
+        setIsLoading(false)
+      })
+      .catch(() => {
+        setError("Failed to load dashboard data")
+        setIsLoading(false)
+      })
+  }, [key])
 
   if (isLoading) {
     return (
@@ -85,7 +81,7 @@ export default function DashboardPage() {
       <div className="flex flex-col items-center justify-center py-24 gap-3">
         <p className="text-sm text-red-500">{error}</p>
         <button
-          onClick={fetchDashboard}
+          onClick={() => { setIsLoading(true); setKey(k => k + 1) }}
           className="text-sm text-baraka-primary hover:underline"
         >
           Try again
@@ -127,7 +123,7 @@ export default function DashboardPage() {
           </p>
         </div>
         <button
-          onClick={fetchDashboard}
+          onClick={() => { setIsLoading(true); setKey(k => k + 1) }}
           className="
             flex items-center gap-2 text-sm
             text-baraka-sage hover:text-baraka-primary

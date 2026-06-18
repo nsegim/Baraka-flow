@@ -1,17 +1,19 @@
 "use client"
 
 import { useRef, useEffect } from "react"
-import { Search, Loader2, Package, ShoppingCart, X } from "lucide-react"
+import { Search, Loader2, Package, ShoppingCart, Users, Truck, X } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { useSearch } from "../../app/hooks/useSearch"
 
 function formatRWF(amount: number) {
-  return `RWF ${amount.toLocaleString()}`
+  return `RWF ${Number(amount).toLocaleString()}`
 }
 
 export default function SearchBar() {
-  const router      = useRouter()
-  const wrapperRef  = useRef<HTMLDivElement>(null)
+  const router     = useRouter()
+  const wrapperRef = useRef<HTMLDivElement>(null)
+  const inputRef   = useRef<HTMLInputElement>(null)
+
   const {
     query, setQuery,
     results, isLoading,
@@ -19,13 +21,27 @@ export default function SearchBar() {
     clearSearch,
   } = useSearch()
 
+  // Cmd/Ctrl+K focuses the search input from anywhere
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault()
+        inputRef.current?.focus()
+        inputRef.current?.select()
+      }
+      if (e.key === "Escape") {
+        setIsOpen(false)
+        inputRef.current?.blur()
+      }
+    }
+    document.addEventListener("keydown", handleKeyDown)
+    return () => document.removeEventListener("keydown", handleKeyDown)
+  }, [setIsOpen])
+
   // Close dropdown when clicking outside
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
-      if (
-        wrapperRef.current &&
-        !wrapperRef.current.contains(e.target as Node)
-      ) {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) {
         setIsOpen(false)
       }
     }
@@ -34,8 +50,15 @@ export default function SearchBar() {
   }, [setIsOpen])
 
   const hasResults =
-    results.products.length > 0 ||
-    results.orders.length > 0
+    results.products.length  > 0 ||
+    results.orders.length    > 0 ||
+    results.customers.length > 0 ||
+    results.suppliers.length > 0
+
+  function navigate(path: string) {
+    router.push(path)
+    clearSearch()
+  }
 
   return (
     <div ref={wrapperRef} className="relative w-72">
@@ -55,11 +78,12 @@ export default function SearchBar() {
           : <Search  size={16} className="text-baraka-sage shrink-0" />
         }
         <input
+          ref={inputRef}
           type="text"
           value={query}
           onChange={e => setQuery(e.target.value)}
           onFocus={() => hasResults && setIsOpen(true)}
-          placeholder="Search products, orders..."
+          placeholder="Search… (⌘K)"
           className="
             bg-transparent text-sm outline-none w-full
             text-[var(--foreground)]
@@ -77,126 +101,128 @@ export default function SearchBar() {
       {isOpen && (
         <div className="
           absolute top-11 left-0 right-0 z-50
-          bg-[var(--card)]
-          rounded-xl shadow-xl
+          bg-[var(--card)] rounded-xl shadow-xl
           border border-[var(--border)]
-          overflow-hidden
-          max-h-96 overflow-y-auto
+          overflow-hidden max-h-[28rem] overflow-y-auto
         ">
 
-          {/* No results */}
+          {/* Empty state */}
           {!hasResults && !isLoading && query.length >= 2 && (
             <div className="px-4 py-6 text-center">
-              <p className="text-sm text-[var(--muted)]">
-                No results for "{query}"
-              </p>
+              <p className="text-sm text-[var(--muted)]">No results for &quot;{query}&quot;</p>
             </div>
           )}
 
-          {/* Products results */}
+          {/* Products */}
           {results.products.length > 0 && (
-            <div>
-              <p className="
-                px-4 py-2 text-xs font-semibold
-                text-[var(--muted)] uppercase tracking-wide
-                bg-[var(--background)]
-                border-b border-[var(--border)]
-              ">
+            <section>
+              <p className="px-4 py-2 text-xs font-semibold text-[var(--muted)] uppercase tracking-wide bg-[var(--background)] border-b border-[var(--border)]">
                 Products
               </p>
-              {results.products.map(product => (
+              {results.products.map(p => (
                 <button
-                  key={product.id}
-                  onClick={() => {
-                    router.push("/inventory")
-                    clearSearch()
-                  }}
-                  className="
-                    w-full flex items-center gap-3
-                    px-4 py-3
-                    hover:bg-[var(--background)]
-                    transition-colors text-left
-                    border-b border-[var(--border)]
-                  "
+                  key={p.id}
+                  onClick={() => navigate("/inventory")}
+                  className="w-full flex items-center gap-3 px-4 py-3 hover:bg-[var(--background)] transition-colors text-left border-b border-[var(--border)]"
                 >
-                  <div className="
-                    w-8 h-8 rounded-lg
-                    bg-blue-100 flex items-center justify-center
-                    shrink-0
-                  ">
+                  <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center shrink-0">
                     <Package size={14} className="text-blue-600" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-[var(--foreground)] truncate">
-                      {product.name}
-                    </p>
+                    <p className="text-sm font-medium text-[var(--foreground)] truncate">{p.name}</p>
                     <p className="text-xs text-[var(--muted)]">
-                      {product.stock} in stock
-                      {product.sku && ` · ${product.sku}`}
+                      {p.stock} in stock{p.sku ? ` · ${p.sku}` : ""}
                     </p>
                   </div>
                   <span className="text-xs font-medium text-[var(--muted)] shrink-0">
-                    {formatRWF(product.price)}
+                    {formatRWF(p.price)}
                   </span>
                 </button>
               ))}
-            </div>
+            </section>
           )}
 
-          {/* Orders results */}
+          {/* Orders */}
           {results.orders.length > 0 && (
-            <div>
-              <p className="
-                px-4 py-2 text-xs font-semibold
-                text-[var(--muted)] uppercase tracking-wide
-                bg-[var(--background)]
-                border-b border-[var(--border)]
-              ">
+            <section>
+              <p className="px-4 py-2 text-xs font-semibold text-[var(--muted)] uppercase tracking-wide bg-[var(--background)] border-b border-[var(--border)]">
                 Orders
               </p>
-              {results.orders.map(order => (
+              {results.orders.map(o => (
                 <button
-                  key={order.id}
-                  onClick={() => {
-                    router.push("/orders")
-                    clearSearch()
-                  }}
-                  className="
-                    w-full flex items-center gap-3
-                    px-4 py-3
-                    hover:bg-[var(--background)]
-                    transition-colors text-left
-                    border-b border-[var(--border)]
-                  "
+                  key={o.id}
+                  onClick={() => navigate("/orders")}
+                  className="w-full flex items-center gap-3 px-4 py-3 hover:bg-[var(--background)] transition-colors text-left border-b border-[var(--border)]"
                 >
-                  <div className="
-                    w-8 h-8 rounded-lg
-                    bg-baraka-sage/20
-                    flex items-center justify-center
-                    shrink-0
-                  ">
+                  <div className="w-8 h-8 rounded-lg bg-baraka-sage/20 flex items-center justify-center shrink-0">
                     <ShoppingCart size={14} className="text-baraka-primary" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-[var(--foreground)]">
-                      {order.orderNumber}
-                    </p>
-                    <p className="text-xs text-[var(--muted)] truncate">
-                      {order.customerName}
-                    </p>
+                    <p className="text-sm font-medium text-[var(--foreground)]">{o.orderNumber}</p>
+                    <p className="text-xs text-[var(--muted)] truncate">{o.customerName}</p>
                   </div>
                   <span className={`
                     text-xs px-2 py-0.5 rounded-full font-medium shrink-0
-                    ${order.status === "DELIVERED"  ? "bg-emerald-100 text-emerald-700" : ""}
-                    ${order.status === "PENDING"    ? "bg-yellow-100 text-yellow-700"  : ""}
-                    ${order.status === "CANCELLED"  ? "bg-red-100 text-red-700"        : ""}
-                    ${order.status === "CONFIRMED"  ? "bg-blue-100 text-blue-700"      : ""}
+                    ${o.status === "DELIVERED" ? "bg-emerald-100 text-emerald-700" : ""}
+                    ${o.status === "PENDING"   ? "bg-yellow-100 text-yellow-700"  : ""}
+                    ${o.status === "CANCELLED" ? "bg-red-100 text-red-700"        : ""}
+                    ${o.status === "CONFIRMED" ? "bg-blue-100 text-blue-700"      : ""}
                   `}>
-                    {order.status}
+                    {o.status}
                   </span>
                 </button>
               ))}
-            </div>
+            </section>
+          )}
+
+          {/* Customers */}
+          {results.customers.length > 0 && (
+            <section>
+              <p className="px-4 py-2 text-xs font-semibold text-[var(--muted)] uppercase tracking-wide bg-[var(--background)] border-b border-[var(--border)]">
+                Customers
+              </p>
+              {results.customers.map(c => (
+                <button
+                  key={c.id}
+                  onClick={() => navigate("/customers")}
+                  className="w-full flex items-center gap-3 px-4 py-3 hover:bg-[var(--background)] transition-colors text-left border-b border-[var(--border)]"
+                >
+                  <div className="w-8 h-8 rounded-lg bg-purple-100 flex items-center justify-center shrink-0">
+                    <Users size={14} className="text-purple-600" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-[var(--foreground)] truncate">{c.name}</p>
+                    <p className="text-xs text-[var(--muted)]">
+                      {c.phone ?? c.email ?? "No contact"}
+                    </p>
+                  </div>
+                </button>
+              ))}
+            </section>
+          )}
+
+          {/* Suppliers */}
+          {results.suppliers.length > 0 && (
+            <section>
+              <p className="px-4 py-2 text-xs font-semibold text-[var(--muted)] uppercase tracking-wide bg-[var(--background)] border-b border-[var(--border)]">
+                Suppliers
+              </p>
+              {results.suppliers.map(s => (
+                <button
+                  key={s.id}
+                  onClick={() => navigate("/suppliers")}
+                  className="w-full flex items-center gap-3 px-4 py-3 hover:bg-[var(--background)] transition-colors text-left border-b border-[var(--border)]"
+                >
+                  <div className="w-8 h-8 rounded-lg bg-orange-100 flex items-center justify-center shrink-0">
+                    <Truck size={14} className="text-orange-600" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-[var(--foreground)] truncate">{s.name}</p>
+                    <p className="text-xs text-[var(--muted)]">{s.country ?? "No country"}</p>
+                  </div>
+                </button>
+              ))}
+            </section>
           )}
 
         </div>

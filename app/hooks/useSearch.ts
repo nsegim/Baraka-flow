@@ -18,20 +18,37 @@ interface SearchOrder {
   status:       string
 }
 
-interface SearchResults {
-  products: SearchProduct[]
-  orders:   SearchOrder[]
+interface SearchCustomer {
+  id:    string
+  name:  string
+  phone: string | null
+  email: string | null
 }
+
+interface SearchSupplier {
+  id:      string
+  name:    string
+  country: string | null
+}
+
+interface SearchResults {
+  products:  SearchProduct[]
+  orders:    SearchOrder[]
+  customers: SearchCustomer[]
+  suppliers: SearchSupplier[]
+}
+
+const EMPTY: SearchResults = { products: [], orders: [], customers: [], suppliers: [] }
 
 export function useSearch() {
   const [query,     setQuery]     = useState("")
-  const [results,   setResults]   = useState<SearchResults>({ products: [], orders: [] })
+  const [results,   setResults]   = useState<SearchResults>(EMPTY)
   const [isLoading, setIsLoading] = useState(false)
   const [isOpen,    setIsOpen]    = useState(false)
 
   const search = useCallback(async (q: string) => {
     if (q.trim().length < 2) {
-      setResults({ products: [], orders: [] })
+      setResults(EMPTY)
       setIsOpen(false)
       return
     }
@@ -49,30 +66,16 @@ export function useSearch() {
     }
   }, [])
 
-  // Debounce — wait 300ms after user stops typing
   useEffect(() => {
-    const timer = setTimeout(() => {
-      search(query)
-    }, 300)
-
-    // Cleanup — cancel the timer if user types again
-    // before 300ms is up
+    const timer = setTimeout(() => { search(query) }, 300)
     return () => clearTimeout(timer)
   }, [query, search])
 
   function clearSearch() {
     setQuery("")
-    setResults({ products: [], orders: [] })
+    setResults(EMPTY)
     setIsOpen(false)
   }
 
-  return {
-    query,
-    setQuery,
-    results,
-    isLoading,
-    isOpen,
-    setIsOpen,
-    clearSearch,
-  }
+  return { query, setQuery, results, isLoading, isOpen, setIsOpen, clearSearch }
 }

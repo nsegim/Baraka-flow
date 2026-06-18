@@ -1,166 +1,300 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
 generator client {
   provider = "prisma-client"
   output   = "../lib/generated/prisma"
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
   directUrl = env("DIRECT_URL")
 }
 
-
-
-// ─────────────────────────────────────────
-// BUSINESS
-// Every company that signs up gets one Business record
-// This is what makes BarakaFlow multi-tenant —
-// each business only sees their own data
-// ─────────────────────────────────────────
 model Business {
-  id        String   @id @default(cuid())
-  name      String
-  email     String   @unique
-  phone     String?
-  address   String?
-  currency  String   @default("RWF")
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  // A business has many of these:
-  users      User[]
-  products   Product[]
-  orders     Order[]
-  suppliers  Supplier[]
-  categories Category[]
+  id              String          @id @default(cuid())
+  name            String
+  email           String          @unique
+  phone           String?
+  address         String?
+  currency        String          @default("RWF")
+  logoUrl         String?
+  taxRate         Decimal         @default(0.18) @db.Decimal(5, 4)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  maxProducts     Int?
+  maxUsers        Int?
+  status          BusinessStatus  @default(ACTIVE)
+  suspendedAt     DateTime?
+  suspendedReason String?
+  categories      Category[]
+  creditNotes     CreditNote[]
+  customers       Customer[]
+  expenses        Expense[]
+  orders          Order[]
+  products        Product[]
+  purchaseOrders  PurchaseOrder[]
+  suppliers       Supplier[]
+  users           User[]
 }
 
-// ─────────────────────────────────────────
-// USER
-// People who log into BarakaFlow
-// One business can have multiple users (owner, staff, accountant)
-// ─────────────────────────────────────────
 model User {
-  id         String   @id @default(cuid())
-  name       String
-  email      String   @unique
-  password   String   // stored as a hash — never plain text
-  role       Role     @default(STAFF)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  id                 String          @id @default(cuid())
+  name               String
+  email              String          @unique
+  password           String
+  role               Role            @default(STAFF)
+  isActive           Boolean         @default(true)
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+  businessId         String
+  creditNotesCreated CreditNote[]    @relation("CreditNoteCreator")
+  expensesCreated    Expense[]       @relation("ExpenseCreator")
+  orders             Order[]
+  purchaseOrders     PurchaseOrder[] @relation("POCreator")
+  stockMovements     StockMovement[]
+  business           Business        @relation(fields: [businessId], references: [id])
 
-  // Which business this user belongs to
-  businessId String
-  business   Business @relation(fields: [businessId], references: [id])
-
-  // A user can create many orders
-  orders     Order[]
+  @@index([businessId])
 }
 
-// User roles — owner has full access, staff has limited access
-enum Role {
-  OWNER
-  MANAGER
-  STAFF
+model Customer {
+  id                 String       @id @default(cuid())
+  name               String
+  phone              String?
+  email              String?
+  address            String?
+  notes              String?
+  outstandingBalance Decimal      @default(0) @db.Decimal(12, 2)
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+  businessId         String
+  creditNotes        CreditNote[]
+  business           Business     @relation(fields: [businessId], references: [id])
+  orders             Order[]
+
+  @@index([businessId])
+  @@index([businessId, phone])
 }
 
-// ─────────────────────────────────────────
-// CATEGORY
-// Organizes products — e.g. "Bedroom", "Office", "Living Room"
-// Specific to furniture businesses like those in Mugakiriro
-// ─────────────────────────────────────────
 model Category {
   id         String    @id @default(cuid())
   name       String
   createdAt  DateTime  @default(now())
-
+  updatedAt  DateTime  @updatedAt
   businessId String
   business   Business  @relation(fields: [businessId], references: [id])
-
   products   Product[]
+
+  @@index([businessId])
 }
 
-// ─────────────────────────────────────────
-// SUPPLIER
-// Where products come from — China, Dubai, local
-// ─────────────────────────────────────────
 model Supplier {
-  id          String    @id @default(cuid())
-  name        String
-  email       String?
-  phone       String?
-  country     String?   // "China", "Dubai", "Rwanda"
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id             String          @id @default(cuid())
+  name           String
+  email          String?
+  phone          String?
+  country        String?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  businessId     String
+  products       Product[]
+  purchaseOrders PurchaseOrder[]
+  business       Business        @relation(fields: [businessId], references: [id])
 
-  businessId  String
-  business    Business  @relation(fields: [businessId], references: [id])
-
-  products    Product[]
+  @@index([businessId])
 }
 
-// ─────────────────────────────────────────
-// PRODUCT
-// The core of BarakaFlow — every item in the warehouse
-// ─────────────────────────────────────────
 model Product {
-  id          String   @id @default(cuid())
-  name        String
-  description String?
-  sku         String?  // Stock Keeping Unit — unique product code
-  price       Float    // selling price
-  costPrice   Float?   // what you paid for it (import cost)
-  stock       Int      @default(0)  // current quantity in warehouse
-  minStock    Int      @default(5)  // alert threshold
-  unit        String   @default("piece") // "piece", "set", "pair"
-  imageUrl    String?
-  origin      String?  // "China", "Dubai", "Local"
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id                 String              @id @default(cuid())
+  name               String
+  description        String?
+  sku                String?
+  price              Decimal             @db.Decimal(12, 2)
+  costPrice          Decimal?            @db.Decimal(12, 2)
+  stock              Int                 @default(0)
+  minStock           Int                 @default(5)
+  unit               String              @default("piece")
+  imageUrl           String?
+  origin             String?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  businessId         String
+  categoryId         String?
+  supplierId         String?
+  orderItems         OrderItem[]
+  business           Business            @relation(fields: [businessId], references: [id])
+  category           Category?           @relation(fields: [categoryId], references: [id])
+  supplier           Supplier?           @relation(fields: [supplierId], references: [id])
+  purchaseOrderItems PurchaseOrderItem[]
+  stockMovements     StockMovement[]
 
-  // Relationships
-  businessId  String
-  business    Business  @relation(fields: [businessId], references: [id])
-
-  categoryId  String?
-  category    Category? @relation(fields: [categoryId], references: [id])
-
-  supplierId  String?
-  supplier    Supplier? @relation(fields: [supplierId], references: [id])
-
-  orderItems  OrderItem[]
-  stockMovements StockMovement[]
+  @@index([businessId])
+  @@index([businessId, stock])
+  @@index([businessId, categoryId])
+  @@index([supplierId])
 }
 
-// ─────────────────────────────────────────
-// ORDER
-// A sale to a client
-// ─────────────────────────────────────────
 model Order {
-  id           String      @id @default(cuid())
-  orderNumber  String      @unique // e.g. "ORD-2025-001"
-  customerName String
-  customerPhone String?
-  status       OrderStatus @default(PENDING)
-  totalAmount  Float
+  id             String        @id @default(cuid())
+  orderNumber    String        @unique
+  customerName   String
+  customerPhone  String?
+  status         OrderStatus   @default(PENDING)
+  subtotal       Decimal?      @db.Decimal(12, 2)
+  taxRate        Decimal?      @db.Decimal(5, 4)
+  taxAmount      Decimal?      @db.Decimal(12, 2)
+  discountAmount Decimal?      @db.Decimal(12, 2)
+  totalAmount    Decimal       @db.Decimal(12, 2)
+  amountPaid     Decimal       @default(0) @db.Decimal(12, 2)
+  paymentStatus  PaymentStatus @default(UNPAID)
+  notes          String?
+  deliveredAt    DateTime?
+  deliveryNotes  String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  businessId     String
+  userId         String
+  customerId     String?
+  business       Business      @relation(fields: [businessId], references: [id])
+  customer       Customer?     @relation(fields: [customerId], references: [id])
+  user           User          @relation(fields: [userId], references: [id])
+  items          OrderItem[]
+  payments       Payment[]
+
+  @@index([businessId])
+  @@index([businessId, status])
+  @@index([businessId, paymentStatus])
+  @@index([businessId, createdAt])
+  @@index([userId])
+  @@index([customerId])
+}
+
+model OrderItem {
+  id        String  @id @default(cuid())
+  quantity  Int
+  unitPrice Decimal @db.Decimal(12, 2)
+  orderId   String
+  productId String
+  order     Order   @relation(fields: [orderId], references: [id])
+  product   Product @relation(fields: [productId], references: [id])
+
+  @@index([orderId])
+  @@index([productId])
+}
+
+model Payment {
+  id        String        @id @default(cuid())
+  amount    Decimal       @db.Decimal(12, 2)
+  method    PaymentMethod
+  reference String?
+  notes     String?
+  paidAt    DateTime      @default(now())
+  createdAt DateTime      @default(now())
+  orderId   String
+  order     Order         @relation(fields: [orderId], references: [id])
+
+  @@index([orderId])
+}
+
+model StockMovement {
+  id        String       @id @default(cuid())
+  type      MovementType
+  quantity  Int
+  reason    String?
+  createdAt DateTime     @default(now())
+  productId String
+  userId    String?
+  product   Product      @relation(fields: [productId], references: [id])
+  user      User?        @relation(fields: [userId], references: [id])
+
+  @@index([productId])
+  @@index([productId, createdAt])
+  @@index([userId])
+}
+
+model Expense {
+  id          String          @id @default(cuid())
+  title       String
+  amount      Decimal         @db.Decimal(12, 2)
+  category    ExpenseCategory
+  date        DateTime
+  notes       String?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  businessId  String
+  createdById String
+  business    Business        @relation(fields: [businessId], references: [id])
+  createdBy   User            @relation("ExpenseCreator", fields: [createdById], references: [id])
+
+  @@index([businessId])
+  @@index([businessId, date])
+  @@index([businessId, category])
+}
+
+model PurchaseOrder {
+  id           String              @id @default(cuid())
+  poNumber     String              @unique
+  status       PurchaseOrderStatus @default(DRAFT)
+  expectedDate DateTime?
   notes        String?
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
-
+  totalCost    Decimal             @db.Decimal(12, 2)
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
   businessId   String
-  business     Business    @relation(fields: [businessId], references: [id])
+  supplierId   String
+  createdById  String
+  business     Business            @relation(fields: [businessId], references: [id])
+  createdBy    User                @relation("POCreator", fields: [createdById], references: [id])
+  supplier     Supplier            @relation(fields: [supplierId], references: [id])
+  items        PurchaseOrderItem[]
 
-  userId       String
-  user         User        @relation(fields: [userId], references: [id])
+  @@index([businessId])
+  @@index([businessId, status])
+}
 
-  // An order contains multiple products
-  items        OrderItem[]
+model PurchaseOrderItem {
+  id               String        @id @default(cuid())
+  quantity         Int
+  quantityReceived Int           @default(0)
+  unitCost         Decimal       @db.Decimal(12, 2)
+  purchaseOrderId  String
+  productId        String
+  product          Product       @relation(fields: [productId], references: [id])
+  purchaseOrder    PurchaseOrder @relation(fields: [purchaseOrderId], references: [id])
+
+  @@index([purchaseOrderId])
+  @@index([productId])
+}
+
+model CreditNote {
+  id               String           @id @default(cuid())
+  creditNoteNumber String           @unique
+  amount           Decimal          @db.Decimal(12, 2)
+  reason           String
+  notes            String?
+  status           CreditNoteStatus @default(ISSUED)
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  businessId       String
+  customerId       String
+  createdById      String
+  business         Business         @relation(fields: [businessId], references: [id])
+  createdBy        User             @relation("CreditNoteCreator", fields: [createdById], references: [id])
+  customer         Customer         @relation(fields: [customerId], references: [id])
+
+  @@index([businessId])
+  @@index([customerId])
+  @@index([businessId, createdAt])
+}
+
+enum BusinessStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+enum Role {
+  OWNER
+  MANAGER
+  STAFF
 }
 
 enum OrderStatus {
@@ -170,45 +304,46 @@ enum OrderStatus {
   CANCELLED
 }
 
-// ─────────────────────────────────────────
-// ORDER ITEM
-// Each individual product line within an order
-// Example: Order #001 has 2x Sofa + 1x Coffee Table
-// That's two OrderItem records
-// ─────────────────────────────────────────
-model OrderItem {
-  id        String  @id @default(cuid())
-  quantity  Int
-  unitPrice Float   // price at time of sale (prices can change)
-
-  orderId   String
-  order     Order   @relation(fields: [orderId], references: [id])
-
-  productId String
-  product   Product @relation(fields: [productId], references: [id])
+enum PaymentStatus {
+  UNPAID
+  PARTIAL
+  PAID
 }
 
-// ─────────────────────────────────────────
-// STOCK MOVEMENT
-// Every time stock changes — this records WHO did it, WHEN, and WHY
-// This is how you catch staff stealing stock
-// Every addition, removal, or adjustment is permanently logged
-// ─────────────────────────────────────────
-model StockMovement {
-  id        String         @id @default(cuid())
-  type      MovementType
-  quantity  Int            // positive = stock added, negative = stock removed
-  reason    String?        // "New import from China", "Damaged goods", "Sale"
-  createdAt DateTime       @default(now())
-
-  productId String
-  product   Product        @relation(fields: [productId], references: [id])
+enum PaymentMethod {
+  CASH
+  MOBILE_MONEY
+  BANK_TRANSFER
+  CREDIT
 }
 
 enum MovementType {
-  IMPORT      // new stock arrived from supplier
-  SALE        // sold to customer
-  ADJUSTMENT  // manual correction
-  DAMAGE      // damaged/lost goods
-  RETURN      // customer returned item
+  IMPORT
+  SALE
+  ADJUSTMENT
+  DAMAGE
+  RETURN
+}
+
+enum ExpenseCategory {
+  RENT
+  UTILITIES
+  TRANSPORT
+  STAFF_WAGES
+  MARKETING
+  EQUIPMENT
+  OTHER
+}
+
+enum PurchaseOrderStatus {
+  DRAFT
+  SENT
+  CONFIRMED
+  RECEIVED
+  CANCELLED
+}
+
+enum CreditNoteStatus {
+  ISSUED
+  VOIDED
 }

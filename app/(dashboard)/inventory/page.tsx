@@ -1,15 +1,17 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState, useMemo, useRef } from "react"
 import {
   Plus, Search, Package,
   AlertTriangle, Pencil, Trash2,
-  RefreshCw
+  RefreshCw, BarChart2, Upload, X, CheckCircle2, FileText,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useProducts, Product } from "../../../app/hooks/useProducts"
 import ProductModal from "@/components/inventory/ProductModal"
 import DeleteConfirmModal from "@/components/inventory/DeleteConfirmModal"
+import StockAdjustModal from "@/components/inventory/StockAdjustModal"
+import Image from "next/image"
 
 // Format number as RWF
 function formatRWF(amount: number): string {
@@ -45,9 +47,11 @@ function StockBadge({ stock, minStock }: { stock: number; minStock: number }) {
 export default function InventoryPage() {
   const {
     products,
+    meta,
     isLoading,
     error,
     fetchProducts,
+    goToPage,
     addProduct,
     updateProduct,
     deleteProduct,
@@ -56,11 +60,48 @@ export default function InventoryPage() {
   // Search and filter state
   const [search,   setSearch]   = useState("")
 
+  // CSV import state
+  const fileInputRef   = useRef<HTMLInputElement>(null)
+  const [showImport,   setShowImport]   = useState(false)
+  const [importFile,   setImportFile]   = useState<File | null>(null)
+  const [importing,    setImporting]    = useState(false)
+  const [importResult, setImportResult] = useState<{ imported: number; skipped: number; skippedItems: string[] } | null>(null)
+  const [importError,  setImportError]  = useState("")
+
+  async function handleImport() {
+    if (!importFile) return
+    setImporting(true)
+    setImportError("")
+    setImportResult(null)
+    const fd = new FormData()
+    fd.append("file", importFile)
+    try {
+      const res  = await fetch("/api/products/import", { method: "POST", body: fd })
+      const json = await res.json()
+      if (!res.ok) { setImportError(json.error || "Import failed"); return }
+      setImportResult(json)
+      fetchProducts()
+    } catch {
+      setImportError("Failed to upload file")
+    } finally {
+      setImporting(false)
+    }
+  }
+
+  function closeImport() {
+    setShowImport(false)
+    setImportFile(null)
+    setImportResult(null)
+    setImportError("")
+    if (fileInputRef.current) fileInputRef.current.value = ""
+  }
+
   // Modal state
   const [showAddModal,    setShowAddModal]    = useState(false)
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
   const [isEditMode,      setIsEditMode]      = useState(false)
+  const [adjustingProduct, setAdjustingProduct] = useState<Product | null>(null)
 
   // Filter products by search term
   // useMemo means: only recalculate when products or search changes
@@ -102,6 +143,11 @@ export default function InventoryPage() {
     setShowAddModal(true)
   }
 
+  // Open stock adjustment modal
+  function handleAdjust(product: Product) {
+    setAdjustingProduct(product)
+  }
+
   // Save — handles both add and edit
   async function handleSave(data: Partial<Product>) {
     if (isEditMode && selectedProduct) {
@@ -131,22 +177,31 @@ export default function InventoryPage() {
             {totalProducts} products total
           </p>
         </div>
-        <Button
-          onClick={handleAddClick}
-          className="
-            flex items-center gap-2
-            bg-baraka-primary hover:bg-baraka-dark
-            text-white px-4 py-2.5
-            rounded-lg transition-colors
-          "
-        >
-          <Plus size={18} />
-          Add Product
-        </Button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => { setShowImport(true); setImportResult(null); setImportError("") }}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-lg border border-[var(--border)] bg-[var(--card)] text-[var(--foreground)] hover:bg-[var(--background)] transition-colors text-sm"
+          >
+            <Upload size={16} />
+            Import CSV
+          </button>
+          <Button
+            onClick={handleAddClick}
+            className="
+              flex items-center gap-2
+              bg-baraka-primary hover:bg-baraka-dark
+              text-white px-4 py-2.5
+              rounded-lg transition-colors
+            "
+          >
+            <Plus size={18} />
+            Add Product
+          </Button>
+        </div>
       </div>
 
       {/* ── SUMMARY CARDS ── */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
 
         <div className="bg-[var(--card)] rounded-xl p-4 border border-[var(--border)]">
           <div className="flex items-center gap-3">
@@ -272,7 +327,8 @@ export default function InventoryPage() {
 
         {/* Table */}
         {!isLoading && !error && filteredProducts.length > 0 && (
-          <table className="w-full">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[640px]">
             <thead>
               <tr className="border-b border-[var(--border)] bg-[var(--background)]">
                 <th className="text-left text-xs font-semibold text-[var(--muted)] px-6 py-3 uppercase tracking-wide">
@@ -304,16 +360,31 @@ export default function InventoryPage() {
                   key={product.id}
                   className="hover:bg-[var(--background)] transition-colors"
                 >
-                  {/* Product name + description */}
+                  {/* Product name + description + thumbnail */}
                   <td className="px-6 py-4">
-                    <p className="text-sm font-semibold text-[var(--foreground)]">
-                      {product.name}
-                    </p>
-                    {product.description && (
-                      <p className="text-xs text-[var(--muted)] mt-0.5 truncate max-w-xs">
-                        {product.description}
-                      </p>
-                    )}
+                    <div className="flex items-center gap-3">
+                      {product.imageUrl ? (
+                        <div className="relative w-10 h-10 rounded-lg overflow-hidden shrink-0 border border-[var(--border)]">
+                          <Image
+                            src={product.imageUrl}
+                            alt={product.name}
+                            fill
+                            className="object-cover"
+                            sizes="40px"
+                          />
+                        </div>
+                      ) : (
+                        <div className="w-10 h-10 rounded-lg bg-[var(--background)] border border-[var(--border)] flex items-center justify-center shrink-0">
+                          <Package size={16} className="text-[var(--muted)]" />
+                        </div>
+                      )}
+                      <div>
+                        <p className="text-sm font-semibold text-[var(--foreground)]">{product.name}</p>
+                        {product.description && (
+                          <p className="text-xs text-[var(--muted)] mt-0.5 truncate max-w-xs">{product.description}</p>
+                        )}
+                      </div>
+                    </div>
                   </td>
 
                   {/* SKU */}
@@ -369,6 +440,18 @@ export default function InventoryPage() {
                   <td className="px-6 py-4">
                     <div className="flex items-center justify-end gap-2">
                       <button
+                        onClick={() => handleAdjust(product)}
+                        className="
+                          p-2 rounded-lg
+                          hover:bg-baraka-sage/10
+                          text-baraka-sage hover:text-baraka-primary
+                          transition-colors
+                        "
+                        title="Adjust stock"
+                      >
+                        <BarChart2 size={15} />
+                      </button>
+                      <button
                         onClick={() => handleEdit(product)}
                         className="
                           p-2 rounded-lg
@@ -399,17 +482,70 @@ export default function InventoryPage() {
               ))}
             </tbody>
           </table>
+          </div>
+        )}
+
+        {/* ── PAGINATION ── */}
+        {!isLoading && meta.pages > 1 && (
+          <div className="
+            flex items-center justify-between
+            px-6 py-4
+            border-t border-[var(--border)]
+          ">
+            <p className="text-sm text-[var(--muted)]">
+              Showing{" "}
+              {Math.min((meta.page - 1) * meta.limit + 1, meta.total)}–
+              {Math.min(meta.page * meta.limit, meta.total)}{" "}
+              of {meta.total} products
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => goToPage(meta.page - 1)}
+                disabled={meta.page <= 1}
+                className="
+                  px-3 py-1.5 text-sm rounded-lg
+                  border border-[var(--border)]
+                  bg-[var(--card)] text-[var(--foreground)]
+                  hover:bg-[var(--background)]
+                  disabled:opacity-40 disabled:cursor-not-allowed
+                  transition-colors
+                "
+              >
+                Previous
+              </button>
+              <span className="text-sm text-[var(--muted)] px-2">
+                Page {meta.page} of {meta.pages}
+              </span>
+              <button
+                onClick={() => goToPage(meta.page + 1)}
+                disabled={meta.page >= meta.pages}
+                className="
+                  px-3 py-1.5 text-sm rounded-lg
+                  border border-[var(--border)]
+                  bg-[var(--card)] text-[var(--foreground)]
+                  hover:bg-[var(--background)]
+                  disabled:opacity-40 disabled:cursor-not-allowed
+                  transition-colors
+                "
+              >
+                Next
+              </button>
+            </div>
+          </div>
         )}
 
       </div>
 
       {/* ── MODALS ── */}
-      <ProductModal
-        isOpen={showAddModal}
-        onClose={() => setShowAddModal(false)}
-        onSave={handleSave}
-        product={isEditMode ? selectedProduct : null}
-      />
+      {/* key resets all modal state when switching add/edit or changing product */}
+      {showAddModal && (
+        <ProductModal
+          key={isEditMode ? (selectedProduct?.id ?? "edit") : "add"}
+          onClose={() => setShowAddModal(false)}
+          onSave={handleSave}
+          product={isEditMode ? selectedProduct : null}
+        />
+      )}
 
       <DeleteConfirmModal
         isOpen={showDeleteModal}
@@ -417,6 +553,117 @@ export default function InventoryPage() {
         onConfirm={handleDeleteConfirm}
         product={selectedProduct}
       />
+
+      {adjustingProduct && (
+        <StockAdjustModal
+          product={adjustingProduct}
+          onClose={() => setAdjustingProduct(null)}
+          onAdjusted={fetchProducts}
+        />
+      )}
+
+      {/* ── CSV IMPORT MODAL ── */}
+      {showImport && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40" onClick={closeImport}>
+          <div className="bg-[var(--card)] rounded-2xl shadow-xl w-full max-w-lg" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-5 border-b border-[var(--border)]">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 bg-baraka-primary/10 rounded-lg flex items-center justify-center">
+                  <Upload size={18} className="text-baraka-primary" />
+                </div>
+                <div>
+                  <h2 className="font-semibold text-[var(--foreground)]">Import Products from CSV</h2>
+                  <p className="text-xs text-[var(--muted)]">Required column: name. Optional: sku, price, costPrice, stock, minStock, unit, category, description</p>
+                </div>
+              </div>
+              <button onClick={closeImport} className="p-2 rounded-lg hover:bg-[var(--background)] text-[var(--muted)] transition-colors">
+                <X size={16} />
+              </button>
+            </div>
+            <div className="p-5 space-y-4">
+
+              {/* File drop zone */}
+              {!importResult && (
+                <label className="flex flex-col items-center justify-center gap-3 p-8 border-2 border-dashed border-[var(--border)] rounded-xl cursor-pointer hover:border-baraka-primary hover:bg-baraka-primary/5 transition-colors">
+                  <FileText size={32} className="text-baraka-sage" />
+                  {importFile ? (
+                    <div className="text-center">
+                      <p className="text-sm font-medium text-[var(--foreground)]">{importFile.name}</p>
+                      <p className="text-xs text-[var(--muted)]">{(importFile.size / 1024).toFixed(1)} KB</p>
+                    </div>
+                  ) : (
+                    <div className="text-center">
+                      <p className="text-sm font-medium text-[var(--foreground)]">Click to choose a CSV file</p>
+                      <p className="text-xs text-[var(--muted)]">or drag and drop here · max 5 MB</p>
+                    </div>
+                  )}
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".csv"
+                    className="hidden"
+                    onChange={e => { setImportFile(e.target.files?.[0] ?? null); setImportError("") }}
+                  />
+                </label>
+              )}
+
+              {/* Error */}
+              {importError && (
+                <p className="text-xs text-red-600 bg-red-50 px-3 py-2 rounded-lg">{importError}</p>
+              )}
+
+              {/* Success result */}
+              {importResult && (
+                <div className="space-y-3">
+                  <div className="flex items-center gap-3 p-4 bg-emerald-50 rounded-xl border border-emerald-200">
+                    <CheckCircle2 size={20} className="text-emerald-600 shrink-0" />
+                    <div>
+                      <p className="text-sm font-semibold text-emerald-800">Import complete</p>
+                      <p className="text-xs text-emerald-700">
+                        {importResult.imported} product{importResult.imported !== 1 ? "s" : ""} imported
+                        {importResult.skipped > 0 && `, ${importResult.skipped} skipped`}
+                      </p>
+                    </div>
+                  </div>
+                  {importResult.skippedItems.length > 0 && (
+                    <div className="p-3 bg-yellow-50 rounded-lg border border-yellow-200 max-h-32 overflow-y-auto">
+                      <p className="text-xs font-semibold text-yellow-800 mb-1">Skipped rows:</p>
+                      {importResult.skippedItems.map((item, i) => (
+                        <p key={i} className="text-xs text-yellow-700">{item}</p>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Actions */}
+              <div className="flex gap-3 pt-1">
+                <button onClick={closeImport} className="flex-1 py-2.5 rounded-lg border border-[var(--border)] text-sm text-[var(--muted)] hover:bg-[var(--background)] transition-colors">
+                  {importResult ? "Close" : "Cancel"}
+                </button>
+                {!importResult && (
+                  <button
+                    onClick={handleImport}
+                    disabled={!importFile || importing}
+                    className="flex-1 py-2.5 rounded-lg bg-baraka-primary hover:bg-baraka-dark text-white text-sm font-medium transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    <Upload size={15} />
+                    {importing ? "Importing..." : "Import"}
+                  </button>
+                )}
+                {importResult && (
+                  <button
+                    onClick={() => { setImportResult(null); setImportFile(null); if (fileInputRef.current) fileInputRef.current.value = "" }}
+                    className="flex-1 py-2.5 rounded-lg bg-baraka-primary hover:bg-baraka-dark text-white text-sm font-medium transition-colors"
+                  >
+                    Import Another
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   )

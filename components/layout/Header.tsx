@@ -1,6 +1,6 @@
 "use client"
 
-import { Bell, Search, Sun, Moon, LogOut } from "lucide-react"
+import { Bell, Search, Sun, Moon, LogOut, Menu } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useTheme } from "next-themes"
 import { useEffect, useState, useRef } from "react"
@@ -8,7 +8,7 @@ import { signOut } from "next-auth/react"
 import { useSession } from "next-auth/react"
 import SearchBar from "@/components/layout/SearchBar"
 
-export default function Header() {
+export default function Header({ onMenuToggle }: { onMenuToggle?: () => void }) {
   const { theme, setTheme } = useTheme()
   const { data: session }   = useSession()
   const [mounted,      setMounted]      = useState(false)
@@ -53,8 +53,16 @@ export default function Header() {
       px-6 shadow-sm transition-colors duration-300
     ">
 
-      {/* ── LEFT: Search ── */}
-      <SearchBar />
+      {/* ── LEFT: Hamburger (mobile) + Search ── */}
+      <div className="flex items-center gap-2">
+        <button
+          onClick={onMenuToggle}
+          className="md:hidden p-2 rounded-lg hover:bg-[var(--background)] text-[var(--foreground)] transition-colors"
+        >
+          <Menu size={20} />
+        </button>
+        <SearchBar />
+      </div>
 
       {/* ── RIGHT ── */}
       <div className="flex items-center gap-3">

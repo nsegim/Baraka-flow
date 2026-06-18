@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useCallback } from "react"
 
-// Define the shape of a product as returned by our API
 export interface Product {
   id:          string
   name:        string
@@ -14,51 +13,72 @@ export interface Product {
   minStock:    number
   unit:        string
   origin:      string | null
+  imageUrl:    string | null
   createdAt:   string
-  category: {
-    id:   string
-    name: string
-  } | null
-  supplier: {
-    id:   string
-    name: string
-  } | null
+  categoryId:  string | null
+  supplierId:  string | null
+  category: { id: string; name: string } | null
+  supplier: { id: string; name: string } | null
 }
 
-export function useProducts() {
+export interface ProductMeta {
+  total: number
+  page:  number
+  limit: number
+  pages: number
+}
+
+export function useProducts(initialPage = 1) {
   const [products,  setProducts]  = useState<Product[]>([])
+  const [meta,      setMeta]      = useState<ProductMeta>({ total: 0, page: 1, limit: 50, pages: 0 })
   const [isLoading, setIsLoading] = useState(true)
   const [error,     setError]     = useState<string | null>(null)
 
-  // ── FETCH ALL PRODUCTS ──
-  const fetchProducts = useCallback(async () => {
-    try {
-      setIsLoading(true)
-      setError(null)
+  // Two-part trigger: page + key.
+  // Changing `page` navigates. Incrementing `key` forces a re-fetch of the same page.
+  const [page, setPage] = useState(initialPage)
+  const [key,  setKey]  = useState(0)
 
-      const response = await fetch("/api/products")
+  useEffect(() => {
+    let cancelled = false
 
-      if (!response.ok) {
-        throw new Error("Failed to fetch products")
-      }
+    // All setState calls are inside async callbacks — no synchronous setState in the effect body.
+    fetch(`/api/products?page=${page}&limit=50`)
+      .then(res => {
+        if (!res.ok) throw new Error("Failed to fetch products")
+        return res.json()
+      })
+      .then(json => {
+        if (cancelled) return
+        setProducts(json.data)
+        setMeta(json.meta)
+        setError(null)
+        setIsLoading(false)
+      })
+      .catch(err => {
+        if (cancelled) return
+        setError("Could not load products. Please try again.")
+        setIsLoading(false)
+        console.error(err)
+      })
 
-      const data = await response.json()
-      setProducts(data)
+    return () => { cancelled = true }
+  }, [page, key])
 
-    } catch (err) {
-      setError("Could not load products. Please try again.")
-      console.error(err)
-    } finally {
-      setIsLoading(false)
-    }
+  // Navigate to a different page — setIsLoading is in an event handler, not an effect
+  const goToPage = useCallback((newPage: number) => {
+    setIsLoading(true)
+    setError(null)
+    setPage(newPage)
   }, [])
 
-  // Fetch products when hook is first used
-  useEffect(() => {
-    fetchProducts()
-  }, [fetchProducts])
+  // Force re-fetch of the current page (e.g. after an add/delete)
+  const fetchProducts = useCallback(() => {
+    setIsLoading(true)
+    setError(null)
+    setKey(k => k + 1)
+  }, [])
 
-  // ── ADD PRODUCT ──
   const addProduct = async (productData: Partial<Product>) => {
     const response = await fetch("/api/products", {
       method:  "POST",
@@ -67,20 +87,18 @@ export function useProducts() {
     })
 
     if (!response.ok) {
-      const error = await response.json()
-      throw new Error(error.error || "Failed to create product")
+      const err = await response.json()
+      throw new Error(err.error || "Failed to create product")
     }
 
     const newProduct = await response.json()
-
-    // Add new product to the top of the list immediately
-    // without refetching everything
-    setProducts(prev => [newProduct, ...prev])
-
+    // Go back to page 1 so the new product appears at the top
+    setIsLoading(true)
+    setPage(1)
+    setKey(k => k + 1)
     return newProduct
   }
 
-  // ── UPDATE PRODUCT ──
   const updateProduct = async (id: string, productData: Partial<Product>) => {
     const response = await fetch(`/api/products/${id}`, {
       method:  "PATCH",
@@ -89,49 +107,39 @@ export function useProducts() {
     })
 
     if (!response.ok) {
-      const error = await response.json()
-      throw new Error(error.error || "Failed to update product")
+      const err = await response.json()
+      throw new Error(err.error || "Failed to update product")
     }
 
-    const updatedProduct = await response.json()
-
-    // Replace the old product in the list with the updated one
-    setProducts(prev =>
-      prev.map(p => p.id === id ? updatedProduct : p)
-    )
-
-    return updatedProduct
+    const updated = await response.json()
+    setProducts(prev => prev.map(p => p.id === id ? updated : p))
+    return updated
   }
 
-  // ── DELETE PRODUCT ──
   const deleteProduct = async (id: string) => {
-    // Optimistic update — remove from UI immediately
-    const previousProducts = products
+    const previous = products
     setProducts(prev => prev.filter(p => p.id !== id))
 
     try {
-      const response = await fetch(`/api/products/${id}`, {
-        method: "DELETE",
-      })
-
+      const response = await fetch(`/api/products/${id}`, { method: "DELETE" })
       if (!response.ok) {
-        // Server failed — put the product back
-        setProducts(previousProducts)
+        setProducts(previous)
         throw new Error("Failed to delete product")
       }
-
+      setMeta(prev => ({ ...prev, total: Math.max(0, prev.total - 1) }))
     } catch (err) {
-      // Network failed — put the product back
-      setProducts(previousProducts)
+      setProducts(previous)
       throw err
     }
   }
 
   return {
     products,
+    meta,
     isLoading,
     error,
     fetchProducts,
+    goToPage,
     addProduct,
     updateProduct,
     deleteProduct,

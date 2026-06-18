@@ -3,20 +3,29 @@
 import { useState, useEffect, useCallback } from "react"
 import {
   Plus, ShoppingCart, RefreshCw,
-  AlertTriangle, ChevronDown, Trash2
+  ChevronDown, Trash2, CreditCard, FileText,
+  Truck, X, RotateCcw,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import OrderModal from "@/components/orders/OrderModal"
+import Link from "next/link"
 
 interface OrderItem {
   id:        string
   quantity:  number
   unitPrice: number
-  product: {
-    id:   string
-    name: string
-  }
+  product: { id: string; name: string }
 }
+
+interface Payment {
+  id:        string
+  amount:    number
+  method:    "CASH" | "MOBILE_MONEY" | "BANK_TRANSFER" | "CREDIT"
+  reference: string | null
+  paidAt:    string
+}
+
+type PaymentStatus = "UNPAID" | "PARTIAL" | "PAID"
 
 interface Order {
   id:            string
@@ -25,10 +34,27 @@ interface Order {
   customerPhone: string | null
   status:        "PENDING" | "CONFIRMED" | "DELIVERED" | "CANCELLED"
   totalAmount:   number
+  amountPaid:    number
+  paymentStatus: PaymentStatus
   notes:         string | null
+  customerId:    string | null
   createdAt:     string
   items:         OrderItem[]
-  user: { name: string }
+  payments:      Payment[]
+  user:          { name: string }
+}
+
+const PAYMENT_STATUS_STYLES: Record<PaymentStatus, string> = {
+  UNPAID:  "bg-red-100 text-red-700",
+  PARTIAL: "bg-yellow-100 text-yellow-700",
+  PAID:    "bg-emerald-100 text-emerald-700",
+}
+
+const METHOD_LABELS = {
+  CASH:          "Cash",
+  MOBILE_MONEY:  "Mobile Money",
+  BANK_TRANSFER: "Bank Transfer",
+  CREDIT:        "Credit",
 }
 
 // Status badge colors
@@ -65,32 +91,62 @@ function formatDate(dateStr: string) {
   })
 }
 
+interface OrderMeta {
+  total: number
+  page:  number
+  limit: number
+  pages: number
+}
+
 export default function OrdersPage() {
-  const [orders,     setOrders]     = useState<Order[]>([])
-  const [isLoading,  setIsLoading]  = useState(true)
-  const [error,      setError]      = useState("")
-  const [showModal,  setShowModal]  = useState(false)
-  const [expandedId, setExpandedId] = useState<string | null>(null)
-  const [updatingId, setUpdatingId] = useState<string | null>(null)
-  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [orders,         setOrders]         = useState<Order[]>([])
+  const [meta,           setMeta]           = useState<OrderMeta>({ total: 0, page: 1, limit: 50, pages: 0 })
+  const [isLoading,      setIsLoading]      = useState(true)
+  const [error,          setError]          = useState("")
+  const [showModal,      setShowModal]      = useState(false)
+  const [expandedId,     setExpandedId]     = useState<string | null>(null)
+  const [updatingId,     setUpdatingId]     = useState<string | null>(null)
+  const [deletingId,     setDeletingId]     = useState<string | null>(null)
+  const [page,           setPage]           = useState(1)
+  const [key,            setKey]            = useState(0)
+  // Delivery modal state
+  const [deliverOrder, setDeliverOrder] = useState<Order | null>(null)
+  const [deliveryNotes, setDeliveryNotes] = useState("")
+  const [delivering, setDelivering] = useState(false)
+  // Return modal state
+  const [returnOrder,      setReturnOrder]      = useState<Order | null>(null)
+  const [returnReason,     setReturnReason]      = useState("")
+  const [returnCredit,     setReturnCredit]      = useState(true)
+  const [returning,        setReturning]          = useState(false)
+  const [returnError,      setReturnError]        = useState("")
+  // Payment form state
+  const [paymentOrderId, setPaymentOrderId] = useState<string | null>(null)
+  const [payAmount,      setPayAmount]      = useState("")
+  const [payMethod,      setPayMethod]      = useState<Payment["method"]>("CASH")
+  const [payRef,         setPayRef]         = useState("")
+  const [payLoading,     setPayLoading]     = useState(false)
+  const [payError,       setPayError]       = useState("")
 
-  const fetchOrders = useCallback(async () => {
-    try {
-      setIsLoading(true)
-      setError("")
-      const res  = await fetch("/api/orders")
-      const data = await res.json()
-      setOrders(data)
-    } catch {
-      setError("Failed to load orders")
-    } finally {
-      setIsLoading(false)
-    }
-  }, [])
-
+  // All setState calls are inside the .then() callback — not synchronous in the effect body
   useEffect(() => {
-    fetchOrders()
-  }, [fetchOrders])
+    fetch(`/api/orders?page=${page}&limit=50`)
+      .then(r => r.json())
+      .then(json => {
+        setOrders(json.data)
+        setMeta(json.meta)
+        setError("")
+        setIsLoading(false)
+      })
+      .catch(() => {
+        setError("Failed to load orders")
+        setIsLoading(false)
+      })
+  }, [page, key])
+
+  const goToPage = useCallback((newPage: number) => {
+    setIsLoading(true)
+    setPage(newPage)
+  }, [])
 
   // Create new order
   async function handleSave(data: {
@@ -120,26 +176,84 @@ export default function OrdersPage() {
   }
 
   // Update order status
-  async function handleStatusChange(orderId: string, status: string) {
+  async function handleStatusChange(orderId: string, status: string, notes?: string | null) {
     setUpdatingId(orderId)
     try {
       const res = await fetch(`/api/orders/${orderId}`, {
         method:  "PATCH",
         headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ status })
+        body:    JSON.stringify({ status, deliveryNotes: notes ?? null }),
       })
 
       if (!res.ok) throw new Error("Failed to update")
 
       const updated = await res.json()
-      setOrders(prev =>
-        prev.map(o => o.id === orderId ? updated : o)
-      )
+      setOrders(prev => prev.map(o => o.id === orderId ? updated : o))
     } catch {
       setError("Failed to update order status")
     } finally {
       setUpdatingId(null)
     }
+  }
+
+  async function handleReturn() {
+    if (!returnOrder) return
+    if (!returnReason.trim()) { setReturnError("Please provide a return reason"); return }
+    setReturning(true)
+    setReturnError("")
+    try {
+      const res = await fetch(`/api/orders/${returnOrder.id}/return`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ reason: returnReason.trim(), issueCreditNote: returnCredit }),
+      })
+      const json = await res.json()
+      if (!res.ok) { setReturnError(json.error || "Failed to process return"); return }
+      setOrders(prev => prev.map(o => o.id === returnOrder.id ? json.order : o))
+      setReturnOrder(null)
+      setReturnReason("")
+      setReturnCredit(true)
+    } catch {
+      setReturnError("Failed to process return")
+    } finally {
+      setReturning(false)
+    }
+  }
+
+  async function handleConfirmDelivery() {
+    if (!deliverOrder) return
+    setDelivering(true)
+    await handleStatusChange(deliverOrder.id, "DELIVERED", deliveryNotes.trim() || null)
+    setDelivering(false)
+    setDeliverOrder(null)
+    setDeliveryNotes("")
+  }
+
+  // Record payment
+  async function handlePayment(orderId: string) {
+    const amt = parseFloat(payAmount)
+    if (!amt || amt <= 0) { setPayError("Enter a valid amount"); return }
+    setPayLoading(true)
+    setPayError("")
+    const res = await fetch("/api/payments", {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ orderId, amount: amt, method: payMethod, reference: payRef || null }),
+    })
+    if (!res.ok) {
+      const err = await res.json()
+      setPayError(err.error || "Failed to record payment")
+      setPayLoading(false)
+      return
+    }
+    // Refresh the single order in the list
+    const refreshed = await fetch(`/api/orders/${orderId}`).then(r => r.json())
+    setOrders(prev => prev.map(o => o.id === orderId ? refreshed : o))
+    setPaymentOrderId(null)
+    setPayAmount("")
+    setPayRef("")
+    setPayMethod("CASH")
+    setPayLoading(false)
   }
 
   // Delete order
@@ -173,11 +287,19 @@ export default function OrdersPage() {
             Orders
           </h1>
           <p className="text-sm text-[var(--muted)] mt-1">
-            {orders.length} total orders
+            {meta.total} total orders
           </p>
         </div>
-        <Button
-          onClick={() => setShowModal(true)}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => { setIsLoading(true); setKey(k => k + 1) }}
+            className="p-2.5 rounded-lg bg-[var(--card)] border border-[var(--border)] hover:bg-[var(--background)] transition-colors"
+            title="Refresh orders"
+          >
+            <RefreshCw size={16} className="text-[var(--muted)]" />
+          </button>
+          <Button
+            onClick={() => setShowModal(true)}
           className="
             flex items-center gap-2
             bg-baraka-primary hover:bg-baraka-dark
@@ -188,10 +310,11 @@ export default function OrdersPage() {
           <Plus size={18} />
           New Order
         </Button>
+        </div>
       </div>
 
       {/* ── SUMMARY CARDS ── */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-[var(--card)] rounded-xl p-4 border border-[var(--border)]">
           <p className="text-xs text-[var(--muted)] mb-1">Total Revenue</p>
           <p className="text-xl font-bold text-[var(--foreground)]">
@@ -321,30 +444,17 @@ export default function OrdersPage() {
 
               {/* Expanded details */}
               {expandedId === order.id && (
-                <div className="
-                  px-4 pb-4
-                  border-t border-[var(--border)]
-                  pt-4 space-y-4
-                ">
+                <div className="px-4 pb-4 border-t border-[var(--border)] pt-4 space-y-4">
+
                   {/* Items */}
                   <div>
-                    <p className="text-xs font-semibold text-[var(--muted)] mb-2 uppercase tracking-wide">
-                      Order Items
-                    </p>
+                    <p className="text-xs font-semibold text-[var(--muted)] mb-2 uppercase tracking-wide">Order Items</p>
                     <div className="space-y-1">
                       {order.items.map(item => (
-                        <div
-                          key={item.id}
-                          className="
-                            flex justify-between
-                            text-sm py-1
-                          "
-                        >
+                        <div key={item.id} className="flex justify-between text-sm py-1">
                           <span className="text-[var(--foreground)]">
                             {item.product.name}
-                            <span className="text-[var(--muted)] ml-2">
-                              × {item.quantity}
-                            </span>
+                            <span className="text-[var(--muted)] ml-2">× {item.quantity}</span>
                           </span>
                           <span className="font-medium text-[var(--foreground)]">
                             {formatRWF(item.unitPrice * item.quantity)}
@@ -352,69 +462,197 @@ export default function OrdersPage() {
                         </div>
                       ))}
                     </div>
+                    {/* Payment summary */}
+                    <div className="mt-2 pt-2 border-t border-dashed border-[var(--border)] flex justify-between items-center">
+                      <div className="flex items-center gap-2">
+                        <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${PAYMENT_STATUS_STYLES[order.paymentStatus]}`}>
+                          {order.paymentStatus}
+                        </span>
+                        {(order.amountPaid ?? 0) > 0 && (
+                          <span className="text-xs text-[var(--muted)]">
+                            Paid: {formatRWF(order.amountPaid)} / {formatRWF(order.totalAmount)}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Link href={`/orders/${order.id}/invoice`} className="flex items-center gap-1 text-xs text-baraka-sage hover:text-baraka-primary transition-colors">
+                          <FileText size={13} /> Invoice
+                        </Link>
+                        {order.status !== "CANCELLED" && order.paymentStatus !== "PAID" && (
+                          <button
+                            onClick={() => {
+                              setPaymentOrderId(paymentOrderId === order.id ? null : order.id)
+                              setPayAmount("")
+                              setPayRef("")
+                              setPayError("")
+                            }}
+                            className="flex items-center gap-1 text-xs bg-baraka-primary/10 text-baraka-primary hover:bg-baraka-primary hover:text-white px-2.5 py-1 rounded-lg transition-colors"
+                          >
+                            <CreditCard size={13} /> Record Payment
+                          </button>
+                        )}
+                      </div>
+                    </div>
                   </div>
+
+                  {/* Inline payment form */}
+                  {paymentOrderId === order.id && (
+                    <div className="bg-[var(--background)] rounded-lg p-4 border border-[var(--border)] space-y-3">
+                      <p className="text-xs font-semibold text-[var(--foreground)] uppercase tracking-wide">Record Payment</p>
+                      {payError && <p className="text-xs text-red-600">{payError}</p>}
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                        <input
+                          type="number" min="0" step="0.01"
+                          value={payAmount}
+                          onChange={e => setPayAmount(e.target.value)}
+                          placeholder={`Amount (max ${formatRWF(order.totalAmount - (order.amountPaid ?? 0))})`}
+                          className="col-span-1 px-3 py-2 text-sm rounded-lg border border-[var(--border)] bg-[var(--card)] text-[var(--foreground)] placeholder:text-[var(--muted)] outline-none focus:border-baraka-primary"
+                        />
+                        <select
+                          value={payMethod}
+                          onChange={e => setPayMethod(e.target.value as Payment["method"])}
+                          className="px-3 py-2 text-sm rounded-lg border border-[var(--border)] bg-[var(--card)] text-[var(--foreground)] outline-none focus:border-baraka-primary"
+                        >
+                          {Object.entries(METHOD_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                        </select>
+                        <input
+                          type="text"
+                          value={payRef}
+                          onChange={e => setPayRef(e.target.value)}
+                          placeholder="Ref / MoMo ID (optional)"
+                          className="px-3 py-2 text-sm rounded-lg border border-[var(--border)] bg-[var(--card)] text-[var(--foreground)] placeholder:text-[var(--muted)] outline-none focus:border-baraka-primary"
+                        />
+                      </div>
+                      <div className="flex gap-2">
+                        <Button onClick={() => handlePayment(order.id)} disabled={payLoading} className="bg-baraka-primary hover:bg-baraka-dark text-white text-xs px-4 py-2 rounded-lg transition-colors disabled:opacity-50">
+                          {payLoading ? "Saving..." : "Save Payment"}
+                        </Button>
+                        <Button onClick={() => setPaymentOrderId(null)} className="bg-[var(--background)] border border-[var(--border)] text-[var(--foreground)] text-xs px-4 py-2 rounded-lg hover:bg-[var(--border)] transition-colors">
+                          Cancel
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Payment history */}
+                  {order.payments && order.payments.length > 0 && (
+                    <div>
+                      <p className="text-xs font-semibold text-[var(--muted)] mb-2 uppercase tracking-wide">Payments</p>
+                      <div className="space-y-1">
+                        {order.payments.map(p => (
+                          <div key={p.id} className="flex justify-between text-sm py-1">
+                            <span className="text-[var(--muted)]">
+                              {METHOD_LABELS[p.method]}
+                              {p.reference && <span className="ml-1 text-xs">· {p.reference}</span>}
+                              <span className="ml-2 text-xs">{formatDate(p.paidAt)}</span>
+                            </span>
+                            <span className="font-medium text-emerald-600">{formatRWF(p.amount)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   {/* Notes */}
                   {order.notes && (
                     <div>
-                      <p className="text-xs font-semibold text-[var(--muted)] mb-1 uppercase tracking-wide">
-                        Notes
-                      </p>
-                      <p className="text-sm text-[var(--foreground)]">
-                        {order.notes}
-                      </p>
+                      <p className="text-xs font-semibold text-[var(--muted)] mb-1 uppercase tracking-wide">Notes</p>
+                      <p className="text-sm text-[var(--foreground)]">{order.notes}</p>
                     </div>
                   )}
 
                   {/* Actions */}
                   <div className="flex items-center justify-between pt-2 border-t border-[var(--border)]">
-
-                    {/* Status change buttons */}
                     <div className="flex gap-2">
                       {nextStatuses[order.status].map(next => (
                         <Button
                           key={next.value}
-                          onClick={() => handleStatusChange(order.id, next.value)}
+                          onClick={() =>
+                            next.value === "DELIVERED"
+                              ? setDeliverOrder(order)
+                              : handleStatusChange(order.id, next.value)
+                          }
                           disabled={updatingId === order.id}
-                          className={`
-                            text-xs px-3 py-1.5 rounded-lg
-                            transition-colors disabled:opacity-50
-                            ${next.value === "CANCELLED"
+                          className={`text-xs px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50 ${
+                            next.value === "CANCELLED"
                               ? "bg-red-50 text-red-600 hover:bg-red-100"
                               : "bg-baraka-primary text-white hover:bg-baraka-dark"
-                            }
-                          `}
+                          }`}
                         >
-                          {updatingId === order.id
-                            ? "Updating..."
-                            : next.label
-                          }
+                          {updatingId === order.id ? "Updating..." : next.label}
                         </Button>
                       ))}
+                      {order.status === "DELIVERED" && (
+                        <Button
+                          onClick={() => { setReturnOrder(order); setReturnReason(""); setReturnCredit(true); setReturnError("") }}
+                          className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-orange-50 text-orange-600 hover:bg-orange-100 transition-colors"
+                        >
+                          <RotateCcw size={13} />
+                          Return Order
+                        </Button>
+                      )}
                     </div>
-
-                    {/* Delete — only for CANCELLED or PENDING orders */}
-                    {(order.status === "CANCELLED" ||
-                      order.status === "PENDING") && (
+                    {(order.status === "CANCELLED" || order.status === "PENDING") && (
                       <button
                         onClick={() => handleDelete(order.id)}
                         disabled={deletingId === order.id}
-                        className="
-                          flex items-center gap-1.5 text-xs
-                          text-baraka-sage hover:text-red-500
-                          transition-colors disabled:opacity-50
-                        "
+                        className="flex items-center gap-1.5 text-xs text-baraka-sage hover:text-red-500 transition-colors disabled:opacity-50"
                       >
                         <Trash2 size={13} />
                         {deletingId === order.id ? "Deleting..." : "Delete"}
                       </button>
                     )}
-
                   </div>
+
                 </div>
               )}
             </div>
           ))}
+        </div>
+      )}
+
+      {/* ── PAGINATION ── */}
+      {!isLoading && meta.pages > 1 && (
+        <div className="flex items-center justify-between px-1 py-2">
+          <p className="text-sm text-[var(--muted)]">
+            Showing{" "}
+            {Math.min((meta.page - 1) * meta.limit + 1, meta.total)}–
+            {Math.min(meta.page * meta.limit, meta.total)}{" "}
+            of {meta.total} orders
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => goToPage(meta.page - 1)}
+              disabled={meta.page <= 1}
+              className="
+                px-3 py-1.5 text-sm rounded-lg
+                border border-[var(--border)]
+                bg-[var(--card)] text-[var(--foreground)]
+                hover:bg-[var(--background)]
+                disabled:opacity-40 disabled:cursor-not-allowed
+                transition-colors
+              "
+            >
+              Previous
+            </button>
+            <span className="text-sm text-[var(--muted)] px-2">
+              Page {meta.page} of {meta.pages}
+            </span>
+            <button
+              onClick={() => goToPage(meta.page + 1)}
+              disabled={meta.page >= meta.pages}
+              className="
+                px-3 py-1.5 text-sm rounded-lg
+                border border-[var(--border)]
+                bg-[var(--card)] text-[var(--foreground)]
+                hover:bg-[var(--background)]
+                disabled:opacity-40 disabled:cursor-not-allowed
+                transition-colors
+              "
+            >
+              Next
+            </button>
+          </div>
         </div>
       )}
 
@@ -424,6 +662,111 @@ export default function OrdersPage() {
         onClose={() => setShowModal(false)}
         onSave={handleSave}
       />
+
+      {/* ── RETURN ORDER MODAL ── */}
+      {returnOrder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40" onClick={() => setReturnOrder(null)}>
+          <div className="bg-[var(--card)] rounded-2xl shadow-xl w-full max-w-md" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-5 border-b border-[var(--border)]">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 bg-orange-100 rounded-lg flex items-center justify-center">
+                  <RotateCcw size={18} className="text-orange-600" />
+                </div>
+                <div>
+                  <h2 className="font-semibold text-[var(--foreground)]">Return Order</h2>
+                  <p className="text-xs text-[var(--muted)]">{returnOrder.orderNumber} · {returnOrder.customerName}</p>
+                </div>
+              </div>
+              <button onClick={() => setReturnOrder(null)} className="p-2 rounded-lg hover:bg-[var(--background)] text-[var(--muted)] transition-colors">
+                <X size={16} />
+              </button>
+            </div>
+            <div className="p-5 space-y-4">
+              <p className="text-sm text-[var(--muted)]">
+                This will restock all items and mark the order as returned. Total: <strong className="text-[var(--foreground)]">RWF {Number(returnOrder.totalAmount).toLocaleString()}</strong>
+              </p>
+              {returnError && <p className="text-xs text-red-600 bg-red-50 px-3 py-2 rounded-lg">{returnError}</p>}
+              <div>
+                <label className="text-xs font-semibold text-[var(--muted)] uppercase tracking-wide block mb-2">
+                  Return Reason <span className="text-red-500">*</span>
+                </label>
+                <textarea
+                  value={returnReason}
+                  onChange={e => setReturnReason(e.target.value)}
+                  rows={3}
+                  placeholder="e.g. Customer changed mind, damaged goods..."
+                  className="w-full bg-[var(--background)] border border-[var(--border)] rounded-lg px-3 py-2.5 text-sm text-[var(--foreground)] outline-none focus:border-baraka-primary resize-none placeholder:text-[var(--muted)]"
+                />
+              </div>
+              {returnOrder.customerId && (
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={returnCredit}
+                    onChange={e => setReturnCredit(e.target.checked)}
+                    className="w-4 h-4 accent-baraka-primary"
+                  />
+                  <span className="text-sm text-[var(--foreground)]">Issue credit note to customer</span>
+                </label>
+              )}
+              <div className="flex gap-3">
+                <button onClick={() => setReturnOrder(null)} className="flex-1 py-2.5 rounded-lg border border-[var(--border)] text-sm text-[var(--muted)] hover:bg-[var(--background)] transition-colors">
+                  Cancel
+                </button>
+                <button onClick={handleReturn} disabled={returning} className="flex-1 py-2.5 rounded-lg bg-orange-500 hover:bg-orange-600 text-white text-sm font-medium transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
+                  <RotateCcw size={15} />
+                  {returning ? "Processing..." : "Confirm Return"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── DELIVERY CONFIRMATION MODAL ── */}
+      {deliverOrder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40" onClick={() => { setDeliverOrder(null); setDeliveryNotes("") }}>
+          <div className="bg-[var(--card)] rounded-2xl shadow-xl w-full max-w-md" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-5 border-b border-[var(--border)]">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 bg-emerald-100 rounded-lg flex items-center justify-center">
+                  <Truck size={18} className="text-emerald-600" />
+                </div>
+                <div>
+                  <h2 className="font-semibold text-[var(--foreground)]">Mark as Delivered</h2>
+                  <p className="text-xs text-[var(--muted)]">{deliverOrder.orderNumber} · {deliverOrder.customerName}</p>
+                </div>
+              </div>
+              <button onClick={() => { setDeliverOrder(null); setDeliveryNotes("") }} className="p-2 rounded-lg hover:bg-[var(--background)] text-[var(--muted)] transition-colors">
+                <X size={16} />
+              </button>
+            </div>
+            <div className="p-5 space-y-4">
+              <div>
+                <label className="text-xs font-semibold text-[var(--muted)] uppercase tracking-wide block mb-2">
+                  Delivery Notes (optional)
+                </label>
+                <textarea
+                  value={deliveryNotes}
+                  onChange={e => setDeliveryNotes(e.target.value)}
+                  rows={3}
+                  placeholder="e.g. Delivered to reception, signed by John..."
+                  className="w-full bg-[var(--background)] border border-[var(--border)] rounded-lg px-3 py-2.5 text-sm text-[var(--foreground)] outline-none focus:border-baraka-primary resize-none placeholder:text-[var(--muted)]"
+                />
+              </div>
+              <div className="flex gap-3">
+                <button onClick={() => { setDeliverOrder(null); setDeliveryNotes("") }} className="flex-1 py-2.5 rounded-lg border border-[var(--border)] text-sm text-[var(--muted)] hover:bg-[var(--background)] transition-colors">
+                  Cancel
+                </button>
+                <button onClick={handleConfirmDelivery} disabled={delivering} className="flex-1 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
+                  <Truck size={15} />
+                  {delivering ? "Updating..." : "Confirm Delivery"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   )

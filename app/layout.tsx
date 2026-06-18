@@ -1,11 +1,12 @@
-import { Inter } from 'next/font/google';
+import { Montserrat } from 'next/font/google';
 import type { Metadata } from "next";
 import "./globals.css";
 import { Providers } from "@/components/providers/Providers";
 
-const inter = Inter({
-  subsets: ["latin"],
-  variable: "--font-inter",
+const montserrat = Montserrat({
+  subsets: ['latin'],
+  variable: '--font-Montserrat', // 👈 Matches your CSS variable exactly
+  weight: ['400', '500', '700'],  // Choose the weights you need
 });
 
 export const metadata: Metadata = {
@@ -20,7 +21,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en"
-      className={`${inter.variable} h-full antialiased`}
+      className={`${montserrat.variable} h-full antialiased`}
        suppressHydrationWarning>
       
       <body>

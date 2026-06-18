@@ -2,9 +2,12 @@
 
 import { useState, useEffect } from "react"
 import {
-  TrendingUp, Package, ShoppingCart,
-  DollarSign, RefreshCw, BarChart3
+  TrendingUp, Package,
+  DollarSign, RefreshCw, BarChart3, Download, TrendingDown
 } from "lucide-react"
+import RevenueBarChart, { type RevenueTrendPoint } from "@/components/charts/RevenueBarChart"
+import OrderStatusChart from "@/components/charts/OrderStatusChart"
+import TopProductsChart from "@/components/charts/TopProductsChart"
 
 interface ReportData {
   revenue: {
@@ -19,15 +22,23 @@ interface ReportData {
     cancelled: number
   }
   products: {
-    total:     number
-    lowStock:  number
+    total:      number
+    lowStock:   number
     outOfStock: number
   }
   topProducts: {
-    name:       string
-    totalSold:  number
-    revenue:    number
+    name:      string
+    totalSold: number
+    revenue:   number
   }[]
+  monthlyTrend: RevenueTrendPoint[]
+  pnl: {
+    month:    string
+    revenue:  number
+    expenses: number
+    profit:   number
+    margin:   number
+  }
 }
 
 function formatRWF(amount: number) {
@@ -37,28 +48,37 @@ function formatRWF(amount: number) {
 }
 
 export default function ReportsPage() {
-  const [data,      setData]      = useState<ReportData | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
-  const [error,     setError]     = useState("")
+  const now = new Date()
+  const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`
 
-  async function fetchReports() {
-    try {
-      setIsLoading(true)
-      setError("")
-      const res  = await fetch("/api/reports")
-      if (!res.ok) throw new Error("Failed")
-      const json = await res.json()
-      setData(json)
-    } catch {
-      setError("Failed to load reports")
-    } finally {
-      setIsLoading(false)
-    }
-  }
+  const [data,       setData]       = useState<ReportData | null>(null)
+  const [isLoading,  setIsLoading]  = useState(true)
+  const [error,      setError]      = useState("")
+  const [pnlMonth,   setPnlMonth]   = useState(currentMonth)
+  const [key,        setKey]        = useState(0)
 
   useEffect(() => {
-    fetchReports()
-  }, [])
+    fetch(`/api/reports?month=${pnlMonth}`)
+      .then(r => r.json())
+      .then(json => {
+        setData(json)
+        setError("")
+        setIsLoading(false)
+      })
+      .catch(() => {
+        setError("Failed to load reports")
+        setIsLoading(false)
+      })
+  }, [pnlMonth, key])
+
+  function handleMonthChange(m: string) {
+    setIsLoading(true)
+    setPnlMonth(m)
+  }
+
+  function handleExport(type: string) {
+    window.open(`/api/export?type=${type}`, "_blank")
+  }
 
   if (isLoading) {
     return (
@@ -77,7 +97,7 @@ export default function ReportsPage() {
         <BarChart3 size={40} className="text-baraka-sage/40" />
         <p className="text-sm text-red-500">{error}</p>
         <button
-          onClick={fetchReports}
+          onClick={() => { setIsLoading(true); setKey(k => k + 1) }}
           className="text-sm text-baraka-primary hover:underline"
         >
           Try again
@@ -112,17 +132,35 @@ export default function ReportsPage() {
             Business performance overview
           </p>
         </div>
-        <button
-          onClick={fetchReports}
-          className="
-            flex items-center gap-2 text-sm
-            text-baraka-sage hover:text-baraka-primary
-            transition-colors
-          "
-        >
-          <RefreshCw size={15} />
-          Refresh
-        </button>
+        <div className="flex items-center gap-2">
+          {/* Export buttons */}
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {[
+              { label: "Products",      type: "products"        },
+              { label: "Orders",        type: "orders"          },
+              { label: "Customers",     type: "customers"       },
+              { label: "Expenses",      type: "expenses"        },
+              { label: "Stock Log",     type: "stock-movements" },
+              { label: "Credit Notes",  type: "credit-notes"    },
+            ].map(e => (
+              <button
+                key={e.type}
+                onClick={() => handleExport(e.type)}
+                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-[var(--border)] bg-[var(--card)] text-[var(--muted)] hover:text-baraka-primary hover:border-baraka-primary/40 transition-colors"
+              >
+                <Download size={12} />
+                {e.label}
+              </button>
+            ))}
+          </div>
+          <button
+            onClick={() => { setIsLoading(true); setKey(k => k + 1) }}
+            className="flex items-center gap-2 text-sm text-baraka-sage hover:text-baraka-primary transition-colors"
+          >
+            <RefreshCw size={15} />
+            Refresh
+          </button>
+        </div>
       </div>
 
       {/* ── REVENUE SECTION ── */}
@@ -239,7 +277,7 @@ export default function ReportsPage() {
         <h2 className="text-sm font-semibold text-[var(--muted)] uppercase tracking-wide mb-3">
           Inventory
         </h2>
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
 
           {[
             { label: "Total Products", value: data.products.total,      color: "text-[var(--foreground)]", icon: Package },
@@ -317,6 +355,97 @@ export default function ReportsPage() {
                 ))}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* ── CHARTS ── */}
+      <div>
+        <h2 className="text-sm font-semibold text-[var(--muted)] uppercase tracking-wide mb-3">
+          Visual Analytics
+        </h2>
+        <div className="space-y-4">
+
+          {/* Revenue trend — full width */}
+          <div className="bg-[var(--card)] rounded-xl border border-[var(--border)] p-5">
+            <p className="text-sm font-medium text-[var(--foreground)] mb-4">
+              Revenue Trend — Last 6 Months
+            </p>
+            <RevenueBarChart data={data.monthlyTrend} />
+          </div>
+
+          {/* Order status + Top products — side by side */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="bg-[var(--card)] rounded-xl border border-[var(--border)] p-5">
+              <p className="text-sm font-medium text-[var(--foreground)] mb-4">
+                Order Status Breakdown
+              </p>
+              <OrderStatusChart
+                delivered={data.orders.delivered}
+                pending={data.orders.pending}
+                cancelled={data.orders.cancelled}
+                total={data.orders.total}
+              />
+            </div>
+            <div className="bg-[var(--card)] rounded-xl border border-[var(--border)] p-5">
+              <p className="text-sm font-medium text-[var(--foreground)] mb-4">
+                Top Products by Revenue
+              </p>
+              <TopProductsChart data={data.topProducts} />
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      {/* ── P&L SECTION ── */}
+      {data.pnl && (
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-semibold text-[var(--muted)] uppercase tracking-wide">
+              Profit & Loss
+            </h2>
+            <input
+              type="month"
+              value={pnlMonth}
+              onChange={e => handleMonthChange(e.target.value)}
+              className="text-sm bg-[var(--card)] border border-[var(--border)] rounded-lg px-3 py-1.5 text-[var(--foreground)] outline-none focus:border-baraka-primary transition-colors"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="bg-[var(--card)] rounded-xl p-4 border border-[var(--border)]">
+              <div className="flex items-center gap-2 mb-2">
+                <TrendingUp size={15} className="text-emerald-500" />
+                <p className="text-xs text-[var(--muted)]">Revenue</p>
+              </div>
+              <p className="text-xl font-bold text-emerald-600">{formatRWF(data.pnl.revenue)}</p>
+            </div>
+            <div className="bg-[var(--card)] rounded-xl p-4 border border-[var(--border)]">
+              <div className="flex items-center gap-2 mb-2">
+                <TrendingDown size={15} className="text-red-500" />
+                <p className="text-xs text-[var(--muted)]">Expenses</p>
+              </div>
+              <p className="text-xl font-bold text-red-600">{formatRWF(data.pnl.expenses)}</p>
+            </div>
+            <div className="bg-[var(--card)] rounded-xl p-4 border border-[var(--border)]">
+              <div className="flex items-center gap-2 mb-2">
+                <DollarSign size={15} className={data.pnl.profit >= 0 ? "text-emerald-500" : "text-red-500"} />
+                <p className="text-xs text-[var(--muted)]">Net Profit</p>
+              </div>
+              <p className={`text-xl font-bold ${data.pnl.profit >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                {data.pnl.profit < 0 ? "−" : ""}{formatRWF(Math.abs(data.pnl.profit))}
+              </p>
+            </div>
+            <div className="bg-[var(--card)] rounded-xl p-4 border border-[var(--border)]">
+              <div className="flex items-center gap-2 mb-2">
+                <BarChart3 size={15} className="text-baraka-primary" />
+                <p className="text-xs text-[var(--muted)]">Margin</p>
+              </div>
+              <p className={`text-xl font-bold ${data.pnl.margin >= 0 ? "text-baraka-primary" : "text-red-600"}`}>
+                {data.pnl.margin}%
+              </p>
+            </div>
           </div>
         </div>
       )}

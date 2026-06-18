@@ -24,27 +24,20 @@ export async function GET(request: NextRequest) {
 
     const q = query.trim()
 
-    // Search products and orders in parallel
-    const [products, orders] = await Promise.all([
+    // Search products, orders, customers and suppliers in parallel
+    const [products, orders, customers, suppliers] = await Promise.all([
 
       prisma.product.findMany({
         where: {
           businessId,
           OR: [
-            // OR means: match ANY of these conditions
             { name:   { contains: q, mode: "insensitive" } },
             { sku:    { contains: q, mode: "insensitive" } },
             { origin: { contains: q, mode: "insensitive" } },
-          ]
+          ],
         },
-        select: {
-          id:    true,
-          name:  true,
-          stock: true,
-          price: true,
-          sku:   true,
-        },
-        take: 5  // max 5 results
+        select: { id: true, name: true, stock: true, price: true, sku: true },
+        take: 4,
       }),
 
       prisma.order.findMany({
@@ -54,21 +47,40 @@ export async function GET(request: NextRequest) {
             { orderNumber:   { contains: q, mode: "insensitive" } },
             { customerName:  { contains: q, mode: "insensitive" } },
             { customerPhone: { contains: q, mode: "insensitive" } },
-          ]
+          ],
         },
         select: {
-          id:           true,
-          orderNumber:  true,
-          customerName: true,
-          totalAmount:  true,
-          status:       true,
+          id: true, orderNumber: true,
+          customerName: true, totalAmount: true, status: true,
         },
-        take: 5
+        take: 4,
+      }),
+
+      prisma.customer.findMany({
+        where: {
+          businessId,
+          OR: [
+            { name:  { contains: q, mode: "insensitive" } },
+            { phone: { contains: q, mode: "insensitive" } },
+            { email: { contains: q, mode: "insensitive" } },
+          ],
+        },
+        select: { id: true, name: true, phone: true, email: true },
+        take: 3,
+      }),
+
+      prisma.supplier.findMany({
+        where: {
+          businessId,
+          name: { contains: q, mode: "insensitive" },
+        },
+        select: { id: true, name: true, country: true },
+        take: 3,
       }),
 
     ])
 
-    return NextResponse.json({ products, orders })
+    return NextResponse.json({ products, orders, customers, suppliers })
 
   } catch (error) {
     console.error(error)

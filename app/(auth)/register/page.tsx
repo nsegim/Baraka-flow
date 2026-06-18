@@ -69,7 +69,7 @@ export default function RegisterPage() {
         password,
         redirect: false,
       })
-
+     
       if (signInResult?.error) {
         // Registration worked but auto-login failed
         // Send them to login page to sign in manually

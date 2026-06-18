@@ -39,7 +39,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
             business: true  // also fetch their business info
           }
         })
-
+        
         // 3. If no user found with that email
         if (!user) return null
 
@@ -52,7 +52,10 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         // 5. If password wrong
         if (!passwordMatch) return null
 
-        // 6. Login successful — return user data
+        // 6. Block login if business is suspended
+        if (user.business.status === "SUSPENDED") return null
+
+        // 7. Login successful — return user data
         // This gets stored in the JWT token
         return {
           id:           user.id,

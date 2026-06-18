@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect } from "react"
 import {
   Plus, Truck, Mail, Phone,
   Globe, Pencil, Trash2,
@@ -19,23 +19,21 @@ export default function SuppliersPage() {
   const [showConfirm, setShowConfirm] = useState(false)
   const [toDelete,    setToDelete]    = useState<Supplier | null>(null)
 
-  const fetchSuppliers = useCallback(async () => {
-    try {
-      setIsLoading(true)
-      setError("")
-      const res  = await fetch("/api/suppliers")
-      const data = await res.json()
-      setSuppliers(data)
-    } catch {
-      setError("Failed to load suppliers")
-    } finally {
-      setIsLoading(false)
-    }
-  }, [])
+  const [key, setKey] = useState(0)
 
   useEffect(() => {
-    fetchSuppliers()
-  }, [fetchSuppliers])
+    fetch("/api/suppliers")
+      .then(r => r.json())
+      .then(data => {
+        setSuppliers(data)
+        setError("")
+        setIsLoading(false)
+      })
+      .catch(() => {
+        setError("Failed to load suppliers")
+        setIsLoading(false)
+      })
+  }, [key])
 
   // ── ADD or EDIT ──
   async function handleSave(data: Partial<Supplier>) {
@@ -157,7 +155,7 @@ export default function SuppliersPage() {
         <div className="flex flex-col items-center justify-center py-16 gap-3">
           <AlertTriangle size={32} className="text-red-400" />
           <p className="text-sm text-[var(--muted)]">{error}</p>
-          <Button onClick={fetchSuppliers}>Try again</Button>
+          <Button onClick={() => { setIsLoading(true); setKey(k => k + 1) }}>Try again</Button>
         </div>
       )}
 

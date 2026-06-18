@@ -10,7 +10,7 @@
   --color-baraka-cream:   #EEF0E5;
 
   /* ── Font ── */
-  --font-sans: var(--font-inter), sans-serif;
+  --font-sans: var(--font-Montserrat), sans-serif;
 }
 /* ── LIGHT MODE (default) ── */
 @layer base {
