@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
-import { requireSuperAdmin } from "@/lib/admin-auth"
+import { requireSuperAdmin, getPlatformUserId } from "@/lib/admin-auth"
 import { prisma } from "@/lib/prisma"
 import { serialize } from "@/lib/serialize"
+import { createPlatformAuditLog } from "@/lib/platform-audit"
 import { z } from "zod"
 import bcrypt from "bcryptjs"
 
@@ -15,7 +16,7 @@ const CreateBusinessSchema = z.object({
   maxProducts:   z.number().int().positive().nullable().optional(),
 })
 
-// GET /api/admin/businesses — all tenants with counts
+// GET /api/admin/businesses — tenant registry (metadata only, no operational data)
 export async function GET(request: NextRequest) {
   const auth = await requireSuperAdmin()
   if (auth instanceof NextResponse) return auth
@@ -41,15 +42,22 @@ export async function GET(request: NextRequest) {
       take: limit,
       select: {
         id: true, name: true, email: true, phone: true,
-        currency: true, status: true,
+        currency: true, status: true, plan: true, planExpiresAt: true,
         suspendedAt: true, suspendedReason: true,
         maxUsers: true, maxProducts: true,
         createdAt: true, updatedAt: true,
+        // Metadata counts only — no operational/financial data
         _count: {
           select: {
-            users: true, orders: true, products: true,
-            customers: true, expenses: true, purchaseOrders: true,
+            users:    true,
+            branches: true,
           },
+        },
+        // Owner info for contact purposes
+        users: {
+          where: { role: "OWNER" },
+          select: { name: true, email: true, createdAt: true },
+          take: 1,
         },
       },
     }),
@@ -101,6 +109,16 @@ export async function POST(request: NextRequest) {
     include: {
       _count: { select: { users: true } },
     },
+  })
+
+  const platformUserId = await getPlatformUserId()
+  createPlatformAuditLog({
+    platformUserId,
+    action:     "TENANT_CREATED",
+    entityType: "Business",
+    entityId:   business.id,
+    metadata:   { businessName, ownerEmail, currency },
+    ipAddress:  request.headers.get("x-forwarded-for") ?? undefined,
   })
 
   return NextResponse.json(serialize(business), { status: 201 })

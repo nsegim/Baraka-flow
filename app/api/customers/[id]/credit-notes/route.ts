@@ -3,6 +3,8 @@ import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { z } from "zod"
 import { randomUUID } from "crypto"
+import { createAuditLog } from "@/lib/audit"
+import { getIp } from "@/lib/rate-limit"
 
 const CreateCreditNoteSchema = z.object({
   amount: z.number().positive("Amount must be positive"),
@@ -118,6 +120,16 @@ export async function POST(
           AND "businessId" = ${businessId}
       `,
     ])
+
+    createAuditLog({
+      businessId,
+      userId:     session.user.id,
+      action:     "CREDIT_NOTE_ISSUED",
+      entityType: "CreditNote",
+      entityId:   id,
+      metadata:   { creditNoteNumber, amount, customerName: customer.name, reason },
+      ipAddress:  getIp(request),
+    })
 
     return NextResponse.json({
       id,

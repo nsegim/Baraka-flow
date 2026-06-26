@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react"
 import { Plus, ClipboardList, ChevronDown, X, Loader2, Trash2, CheckCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { useTranslations } from "next-intl"
 
 type POStatus = "DRAFT" | "SENT" | "CONFIRMED" | "RECEIVED" | "CANCELLED"
 
@@ -50,6 +51,9 @@ function formatDate(iso: string) {
 function CreatePOModal({ onClose, onCreated }: {
   onClose: () => void; onCreated: () => void
 }) {
+  const t       = useTranslations("purchaseOrders")
+  const tCommon = useTranslations("common")
+
   const [suppliers,    setSuppliers]    = useState<Supplier[]>([])
   const [products,     setProducts]     = useState<Product[]>([])
   const [supplierId,   setSupplierId]   = useState("")
@@ -79,8 +83,8 @@ function CreatePOModal({ onClose, onCreated }: {
 
   async function handleSubmit(e: React.SyntheticEvent) {
     e.preventDefault()
-    if (!supplierId) { setError("Select a supplier"); return }
-    if (items.some(it => !it.productId)) { setError("Select a product for each line"); return }
+    if (!supplierId) { setError(t("selectSupplier")); return }
+    if (items.some(it => !it.productId)) { setError(t("selectProduct")); return }
     setLoading(true)
     try {
       const res = await fetch("/api/purchase-orders", {
@@ -95,12 +99,12 @@ function CreatePOModal({ onClose, onCreated }: {
       })
       if (!res.ok) {
         const err = await res.json()
-        throw new Error(err.error || "Failed to create purchase order")
+        throw new Error(err.error || t("failedToLoad"))
       }
       onCreated()
       onClose()
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Something went wrong")
+      setError(err instanceof Error ? err.message : tCommon("somethingWrong"))
     } finally {
       setLoading(false)
     }
@@ -113,7 +117,7 @@ function CreatePOModal({ onClose, onCreated }: {
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
       <div className="relative z-10 w-full max-w-2xl bg-[var(--card)] rounded-2xl shadow-2xl max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between p-6 border-b border-[var(--border)]">
-          <h2 className="text-lg font-bold text-[var(--foreground)]">New Purchase Order</h2>
+          <h2 className="text-lg font-bold text-[var(--foreground)]">{t("newPOTitle")}</h2>
           <button onClick={onClose} className="p-2 rounded-lg hover:bg-[var(--background)] transition-colors">
             <X size={18} className="text-[var(--muted)]" />
           </button>
@@ -123,17 +127,17 @@ function CreatePOModal({ onClose, onCreated }: {
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-sm font-medium text-[var(--foreground)] mb-1.5">Supplier *</label>
+              <label className="block text-sm font-medium text-[var(--foreground)] mb-1.5">{tCommon("supplier")} *</label>
               <div className="relative">
                 <select value={supplierId} onChange={e => setSupplierId(e.target.value)} className={`${inputClass} appearance-none pr-8`}>
-                  <option value="">Select supplier...</option>
+                  <option value="">{t("selectSupplier")}...</option>
                   {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                 </select>
                 <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--muted)] pointer-events-none" />
               </div>
             </div>
             <div>
-              <label className="block text-sm font-medium text-[var(--foreground)] mb-1.5">Expected Delivery</label>
+              <label className="block text-sm font-medium text-[var(--foreground)] mb-1.5">{t("expectedDelivery")}</label>
               <input type="date" value={expectedDate} onChange={e => setExpectedDate(e.target.value)} className={inputClass} />
             </div>
           </div>
@@ -141,9 +145,9 @@ function CreatePOModal({ onClose, onCreated }: {
           {/* Items */}
           <div>
             <div className="flex items-center justify-between mb-2">
-              <label className="text-sm font-medium text-[var(--foreground)]">Items *</label>
+              <label className="text-sm font-medium text-[var(--foreground)]">{t("poNumber")} Items *</label>
               <button type="button" onClick={addItem} className="text-xs text-baraka-primary hover:underline flex items-center gap-1">
-                <Plus size={12} /> Add line
+                <Plus size={12} /> {t("addLine")}
               </button>
             </div>
             <div className="space-y-2">
@@ -151,13 +155,13 @@ function CreatePOModal({ onClose, onCreated }: {
                 <div key={i} className="grid grid-cols-[1fr_80px_100px_32px] gap-2 items-center">
                   <div className="relative">
                     <select value={item.productId} onChange={e => updateItem(i, "productId", e.target.value)} className={`${inputClass} appearance-none pr-8`}>
-                      <option value="">Select product...</option>
+                      <option value="">{t("selectProduct")}...</option>
                       {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                     </select>
                     <ChevronDown size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--muted)] pointer-events-none" />
                   </div>
                   <input type="number" min="1" value={item.quantity} onChange={e => updateItem(i, "quantity", e.target.value)} className={inputClass} placeholder="Qty" />
-                  <input type="number" min="0" step="0.01" value={item.unitCost || ""} onChange={e => updateItem(i, "unitCost", e.target.value)} className={inputClass} placeholder="Unit cost" />
+                  <input type="number" min="0" step="0.01" value={item.unitCost || ""} onChange={e => updateItem(i, "unitCost", e.target.value)} className={inputClass} placeholder={t("unitCost")} />
                   <button type="button" onClick={() => removeItem(i)} disabled={items.length === 1} className="p-1.5 text-[var(--muted)] hover:text-red-500 disabled:opacity-30 transition-colors">
                     <X size={14} />
                   </button>
@@ -165,21 +169,24 @@ function CreatePOModal({ onClose, onCreated }: {
               ))}
             </div>
             <div className="mt-3 text-right">
-              <span className="text-sm font-semibold text-[var(--foreground)]">Total: {formatRWF(total)}</span>
+              <span className="text-sm font-semibold text-[var(--foreground)]">{tCommon("total")}: {formatRWF(total)}</span>
             </div>
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-[var(--foreground)] mb-1.5">Notes</label>
+            <label className="block text-sm font-medium text-[var(--foreground)] mb-1.5">{tCommon("notes")}</label>
             <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2} className={`${inputClass} resize-none`} placeholder="Optional notes..." />
           </div>
 
           <div className="flex gap-3 pt-2">
             <Button type="button" onClick={onClose} className="flex-1 py-2.5 bg-[var(--background)] border border-[var(--border)] text-[var(--foreground)] rounded-lg hover:bg-[var(--border)] transition-colors">
-              Cancel
+              {tCommon("cancel")}
             </Button>
             <Button type="submit" disabled={loading} className="flex-1 py-2.5 bg-baraka-primary hover:bg-baraka-dark text-white rounded-lg transition-colors disabled:opacity-50">
-              {loading ? <span className="flex items-center justify-center gap-2"><Loader2 size={16} className="animate-spin" />Creating...</span> : "Create PO"}
+              {loading
+                ? <span className="flex items-center justify-center gap-2"><Loader2 size={16} className="animate-spin" />{t("creating")}...</span>
+                : t("createPO")
+              }
             </Button>
           </div>
         </form>
@@ -198,6 +205,9 @@ function ReceiveModal({
   onClose:    () => void
   onReceived: (updated: PurchaseOrder) => void
 }) {
+  const t       = useTranslations("purchaseOrders")
+  const tCommon = useTranslations("common")
+
   const [quantities, setQuantities] = useState<Record<string, number>>(() => {
     const init: Record<string, number> = {}
     for (const item of po.items) {
@@ -212,7 +222,7 @@ function ReceiveModal({
   async function handleSubmit(e: React.SyntheticEvent) {
     e.preventDefault()
     const items = Object.entries(quantities).map(([id, quantityReceived]) => ({ id, quantityReceived }))
-    if (!items.some(i => i.quantityReceived > 0)) { setError("Enter at least one quantity to receive"); return }
+    if (!items.some(i => i.quantityReceived > 0)) { setError(t("enterQtyError")); return }
 
     setSaving(true)
     setError("")
@@ -223,7 +233,7 @@ function ReceiveModal({
     })
     const data = await res.json()
     setSaving(false)
-    if (!res.ok) { setError(data.error || "Failed to receive"); return }
+    if (!res.ok) { setError(data.error || t("failedToLoad")); return }
     setSuccess(true)
     setTimeout(() => { onReceived(data); onClose() }, 1000)
   }
@@ -233,7 +243,7 @@ function ReceiveModal({
       <div className="bg-[var(--card)] rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between p-5 border-b border-[var(--border)]">
           <div>
-            <h2 className="font-semibold text-[var(--foreground)]">Receive Stock</h2>
+            <h2 className="font-semibold text-[var(--foreground)]">{t("receiveStock")}</h2>
             <p className="text-xs text-[var(--muted)]">{po.poNumber} · {po.supplier.name}</p>
           </div>
           <button onClick={onClose} className="p-2 rounded-lg hover:bg-[var(--background)] text-[var(--muted)] transition-colors">
@@ -241,9 +251,7 @@ function ReceiveModal({
           </button>
         </div>
         <form onSubmit={handleSubmit} className="p-5 space-y-4">
-          <p className="text-xs text-[var(--muted)]">
-            Enter the quantity received for each item. Leave 0 to skip an item (partial receive).
-          </p>
+          <p className="text-xs text-[var(--muted)]">{t("receiveHint")}</p>
           <div className="space-y-3">
             {po.items.map(item => {
               const remaining = item.quantity - item.quantityReceived
@@ -251,10 +259,10 @@ function ReceiveModal({
                 <div key={item.id} className="bg-[var(--background)] rounded-xl p-3">
                   <p className="text-sm font-semibold text-[var(--foreground)] mb-1">{item.product.name}</p>
                   <p className="text-xs text-[var(--muted)] mb-2">
-                    Ordered: {item.quantity} · Already received: {item.quantityReceived} · Remaining: {remaining}
+                    {t("ordered")}: {item.quantity} · {t("alreadyReceived")}: {item.quantityReceived} · {t("remaining")}: {remaining}
                   </p>
                   <div className="flex items-center gap-2">
-                    <label className="text-xs text-[var(--muted)] whitespace-nowrap">Receiving now:</label>
+                    <label className="text-xs text-[var(--muted)] whitespace-nowrap">{t("receivingNow")}:</label>
                     <input
                       type="number"
                       min="0"
@@ -268,7 +276,7 @@ function ReceiveModal({
                       disabled={remaining === 0}
                     />
                     {remaining === 0 && (
-                      <span className="text-xs text-emerald-600 font-medium">Fully received</span>
+                      <span className="text-xs text-emerald-600 font-medium">{t("fullyReceived")}</span>
                     )}
                   </div>
                 </div>
@@ -278,15 +286,15 @@ function ReceiveModal({
           {error && <p className="text-sm text-red-500">{error}</p>}
           {success ? (
             <div className="flex items-center justify-center gap-2 py-3 text-emerald-600 font-medium">
-              <CheckCircle size={18} /> Stock updated!
+              <CheckCircle size={18} /> {t("stockUpdated")}
             </div>
           ) : (
             <div className="flex gap-3">
               <button type="button" onClick={onClose} className="flex-1 py-2.5 rounded-lg border border-[var(--border)] text-sm text-[var(--muted)] hover:bg-[var(--background)] transition-colors">
-                Cancel
+                {tCommon("cancel")}
               </button>
               <button type="submit" disabled={saving} className="flex-1 py-2.5 rounded-lg bg-baraka-primary hover:bg-baraka-dark text-white text-sm font-medium transition-colors disabled:opacity-50">
-                {saving ? <Loader2 size={16} className="animate-spin mx-auto" /> : "Confirm Receipt"}
+                {saving ? <Loader2 size={16} className="animate-spin mx-auto" /> : t("confirmReceipt")}
               </button>
             </div>
           )}
@@ -298,14 +306,17 @@ function ReceiveModal({
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 export default function PurchaseOrdersPage() {
-  const [orders,     setOrders]     = useState<PurchaseOrder[]>([])
-  const [meta,       setMeta]       = useState<Meta>({ total: 0, page: 1, limit: 50, pages: 0 })
-  const [isLoading,  setIsLoading]  = useState(true)
-  const [showCreate, setShowCreate] = useState(false)
+  const t       = useTranslations("purchaseOrders")
+  const tCommon = useTranslations("common")
+
+  const [orders,      setOrders]      = useState<PurchaseOrder[]>([])
+  const [meta,        setMeta]        = useState<Meta>({ total: 0, page: 1, limit: 50, pages: 0 })
+  const [isLoading,   setIsLoading]   = useState(true)
+  const [showCreate,  setShowCreate]  = useState(false)
   const [receivingPO, setReceivingPO] = useState<PurchaseOrder | null>(null)
-  const [page,       setPage]       = useState(1)
-  const [key,        setKey]        = useState(0)
-  const [actionId,   setActionId]   = useState<string | null>(null)
+  const [page,        setPage]        = useState(1)
+  const [key,         setKey]         = useState(0)
+  const [actionId,    setActionId]    = useState<string | null>(null)
 
   useEffect(() => {
     fetch(`/api/purchase-orders?page=${page}&limit=50`)
@@ -334,9 +345,8 @@ export default function PurchaseOrdersPage() {
     setActionId(null)
   }
 
-
   async function handleDelete(id: string) {
-    if (!confirm("Delete this purchase order?")) return
+    if (!confirm(t("confirmDelete"))) return
     setActionId(id)
     await fetch(`/api/purchase-orders/${id}`, { method: "DELETE" })
     setOrders(prev => prev.filter(o => o.id !== id))
@@ -349,11 +359,11 @@ export default function PurchaseOrdersPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-[var(--foreground)]">Purchase Orders</h1>
-          <p className="text-sm text-[var(--muted)] mt-1">{meta.total} total orders</p>
+          <h1 className="text-2xl font-bold text-[var(--foreground)]">{t("title")}</h1>
+          <p className="text-sm text-[var(--muted)] mt-1">{t("totalOrdersCount", { count: meta.total })}</p>
         </div>
         <Button onClick={() => setShowCreate(true)} className="flex items-center gap-2 bg-baraka-primary hover:bg-baraka-dark text-white px-4 py-2.5 rounded-lg transition-colors">
-          <Plus size={18} /> New PO
+          <Plus size={18} /> {t("newPO")}
         </Button>
       </div>
 
@@ -366,20 +376,20 @@ export default function PurchaseOrdersPage() {
         ) : orders.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 gap-3">
             <ClipboardList size={40} className="text-baraka-sage/40" />
-            <p className="text-sm font-medium text-[var(--foreground)]">No purchase orders yet</p>
-            <p className="text-xs text-[var(--muted)]">Create a PO to track goods ordered from suppliers.</p>
+            <p className="text-sm font-medium text-[var(--foreground)]">{t("noPOs")}</p>
+            <p className="text-xs text-[var(--muted)]">{t("noPOsHint")}</p>
           </div>
         ) : (
           <>
             <table className="w-full">
               <thead>
                 <tr className="border-b border-[var(--border)] bg-[var(--background)]">
-                  <th className="text-left text-xs font-semibold text-[var(--muted)] px-6 py-3 uppercase tracking-wide">PO #</th>
-                  <th className="text-left text-xs font-semibold text-[var(--muted)] px-4 py-3 uppercase tracking-wide">Supplier</th>
-                  <th className="text-left text-xs font-semibold text-[var(--muted)] px-4 py-3 uppercase tracking-wide">Status</th>
-                  <th className="text-left text-xs font-semibold text-[var(--muted)] px-4 py-3 uppercase tracking-wide">Total Cost</th>
-                  <th className="text-left text-xs font-semibold text-[var(--muted)] px-4 py-3 uppercase tracking-wide">Expected</th>
-                  <th className="text-right text-xs font-semibold text-[var(--muted)] px-6 py-3 uppercase tracking-wide">Actions</th>
+                  <th className="text-left text-xs font-semibold text-[var(--muted)] px-6 py-3 uppercase tracking-wide">{t("poNumber")}</th>
+                  <th className="text-left text-xs font-semibold text-[var(--muted)] px-4 py-3 uppercase tracking-wide">{tCommon("supplier")}</th>
+                  <th className="text-left text-xs font-semibold text-[var(--muted)] px-4 py-3 uppercase tracking-wide">{tCommon("status")}</th>
+                  <th className="text-left text-xs font-semibold text-[var(--muted)] px-4 py-3 uppercase tracking-wide">{t("totalCost")}</th>
+                  <th className="text-left text-xs font-semibold text-[var(--muted)] px-4 py-3 uppercase tracking-wide">{t("expectedDelivery")}</th>
+                  <th className="text-right text-xs font-semibold text-[var(--muted)] px-6 py-3 uppercase tracking-wide">{tCommon("actions")}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[var(--border)]">
@@ -394,7 +404,7 @@ export default function PurchaseOrdersPage() {
                     </td>
                     <td className="px-4 py-4">
                       <span className={`text-xs font-medium px-2.5 py-1 rounded-full ${STATUS_COLORS[o.status]}`}>
-                        {o.status}
+                        {t(`status.${o.status}` as Parameters<typeof t>[0])}
                       </span>
                     </td>
                     <td className="px-4 py-4">
@@ -414,10 +424,9 @@ export default function PurchaseOrdersPage() {
                                 onClick={() => setReceivingPO(o)}
                                 disabled={actionId === o.id}
                                 className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-colors disabled:opacity-50"
-                                title="Mark as received"
                               >
                                 <CheckCircle size={13} />
-                                Receive
+                                {t("receive")}
                               </button>
                             )}
                             {o.status === "DRAFT" && (
@@ -426,7 +435,7 @@ export default function PurchaseOrdersPage() {
                                 disabled={actionId === o.id}
                                 className="px-2.5 py-1.5 text-xs font-medium rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors disabled:opacity-50"
                               >
-                                Mark Sent
+                                {t("markSent")}
                               </button>
                             )}
                           </>
@@ -450,12 +459,12 @@ export default function PurchaseOrdersPage() {
             {meta.pages > 1 && (
               <div className="flex items-center justify-between px-6 py-4 border-t border-[var(--border)]">
                 <p className="text-sm text-[var(--muted)]">
-                  Showing {Math.min((meta.page - 1) * meta.limit + 1, meta.total)}–{Math.min(meta.page * meta.limit, meta.total)} of {meta.total}
+                  {tCommon("showingOf", { from: Math.min((meta.page - 1) * meta.limit + 1, meta.total), to: Math.min(meta.page * meta.limit, meta.total), total: meta.total })}
                 </p>
                 <div className="flex items-center gap-2">
-                  <button onClick={() => setPage(p => p - 1)} disabled={meta.page <= 1} className="px-3 py-1.5 text-sm rounded-lg border border-[var(--border)] disabled:opacity-40 transition-colors">Previous</button>
-                  <span className="text-sm text-[var(--muted)] px-1">Page {meta.page} of {meta.pages}</span>
-                  <button onClick={() => setPage(p => p + 1)} disabled={meta.page >= meta.pages} className="px-3 py-1.5 text-sm rounded-lg border border-[var(--border)] disabled:opacity-40 transition-colors">Next</button>
+                  <button onClick={() => setPage(p => p - 1)} disabled={meta.page <= 1} className="px-3 py-1.5 text-sm rounded-lg border border-[var(--border)] disabled:opacity-40 transition-colors">{tCommon("previous")}</button>
+                  <span className="text-sm text-[var(--muted)] px-1">{tCommon("pageOf", { page: meta.page, pages: meta.pages })}</span>
+                  <button onClick={() => setPage(p => p + 1)} disabled={meta.page >= meta.pages} className="px-3 py-1.5 text-sm rounded-lg border border-[var(--border)] disabled:opacity-40 transition-colors">{tCommon("next")}</button>
                 </div>
               </div>
             )}

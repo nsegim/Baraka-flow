@@ -1,18 +1,21 @@
 import { NextRequest, NextResponse } from "next/server"
-import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { CreateProductSchema } from "@/lib/validators"
 import { serialize } from "@/lib/serialize"
+import { createAuditLog } from "@/lib/audit"
+import { getIp } from "@/lib/rate-limit"
+import { requireBranchContext, isBranchContext, getWriteBranchId } from "@/lib/branch-auth"
 
 // GET /api/products
-// Supports ?all=true (no pagination — for dropdowns like OrderModal)
+// Supports ?all=true (no pagination — for dropdowns)
 // Supports ?page=N&limit=N (paginated — for the inventory table)
+// Products are catalog-level (business-wide). Stock per branch is in BranchInventory.
+// When a branchId context is active, returns stock for that branch.
+// When OWNER views all branches, returns total stock across all branches.
 export async function GET(request: NextRequest) {
   try {
-    const session = await auth()
-    if (!session) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
+    const ctx = await requireBranchContext(request)
+    if (!isBranchContext(ctx)) return ctx
 
     const { searchParams } = request.nextUrl
     const fetchAll = searchParams.get("all") === "true"
@@ -20,23 +23,33 @@ export async function GET(request: NextRequest) {
     const limit    = Math.min(100, Math.max(1, parseInt(searchParams.get("limit") ?? "50")))
     const skip     = (page - 1) * limit
 
-    const where = { businessId: session.user.businessId }
+    const where = { businessId: ctx.session.user.businessId }
+
+    // Build inventory include: scoped to branch when context has one, else aggregate
+    const inventoryFilter = ctx.branchId
+      ? { where: { branchId: ctx.branchId } }
+      : true
+
+    const productInclude = {
+      category:  true,
+      supplier:  true,
+      inventory: inventoryFilter,
+    }
 
     if (fetchAll) {
-      // Used by dropdowns — return up to 1000, no pagination wrapper
       const products = await prisma.product.findMany({
         where,
-        include:  { category: true, supplier: true },
-        orderBy:  { name: "asc" },
-        take:     1000,
+        include: productInclude,
+        orderBy: { name: "asc" },
+        take:    1000,
       })
-      return NextResponse.json(serialize(products))
+      return NextResponse.json(serialize(withStockSummary(products, ctx.branchId)))
     }
 
     const [products, total] = await prisma.$transaction([
       prisma.product.findMany({
         where,
-        include: { category: true, supplier: true },
+        include: productInclude,
         orderBy: { createdAt: "desc" },
         skip,
         take:    limit,
@@ -45,38 +58,65 @@ export async function GET(request: NextRequest) {
     ])
 
     return NextResponse.json({
-      data: serialize(products),
+      data: serialize(withStockSummary(products, ctx.branchId)),
       meta: { total, page, limit, pages: Math.ceil(total / limit) },
     })
-
   } catch (error) {
     console.error("GET /api/products error:", error)
     return NextResponse.json({ error: "Failed to fetch products" }, { status: 500 })
   }
 }
 
+// Flatten BranchInventory into a stock/minStock summary on each product
+function withStockSummary(
+  products: Array<{ inventory: Array<{ stock: number; minStock: number }>; [key: string]: unknown }>,
+  branchId: string | null,
+) {
+  return products.map(({ inventory, ...p }) => ({
+    ...p,
+    stock:    branchId
+      ? (inventory[0]?.stock    ?? 0)
+      : inventory.reduce((sum, i) => sum + i.stock, 0),
+    minStock: branchId
+      ? (inventory[0]?.minStock ?? 5)
+      : Math.max(...inventory.map(i => i.minStock), 5),
+  }))
+}
+
 // POST /api/products — OWNER and MANAGER only
 export async function POST(request: NextRequest) {
   try {
-    const session = await auth()
-    if (!session) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    const ctx = await requireBranchContext(request, { requireBranch: true })
+    if (!isBranchContext(ctx)) return ctx
+
+    if (!["OWNER", "MANAGER"].includes(ctx.session.user.role)) {
+      return NextResponse.json({ error: "You do not have permission to add products" }, { status: 403 })
     }
 
-    if (!["OWNER", "MANAGER"].includes(session.user.role)) {
-      return NextResponse.json(
-        { error: "You do not have permission to add products" },
-        { status: 403 }
-      )
+    const branchId = getWriteBranchId(ctx, new URL(request.url).searchParams.get("branchId"))
+    if (!branchId) {
+      return NextResponse.json({ error: "Select a branch before adding products" }, { status: 400 })
+    }
+
+    // Plan limit
+    const bizLimits = await prisma.business.findUnique({
+      where:  { id: ctx.session.user.businessId },
+      select: { maxProducts: true },
+    })
+    if (bizLimits?.maxProducts !== null && bizLimits?.maxProducts !== undefined) {
+      const count = await prisma.product.count({ where: { businessId: ctx.session.user.businessId } })
+      if (count >= bizLimits.maxProducts) {
+        return NextResponse.json(
+          { error: `Product limit reached. Your plan allows a maximum of ${bizLimits.maxProducts} products.` },
+          { status: 403 }
+        )
+      }
     }
 
     const body   = await request.json()
     const parsed = CreateProductSchema.safeParse(body)
     if (!parsed.success) {
-      return NextResponse.json(
-        { error: parsed.error.issues[0].message },
-        { status: 400 }
-      )
+      return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 })
     }
 
     const {
@@ -84,38 +124,67 @@ export async function POST(request: NextRequest) {
       stock, minStock, unit, origin, categoryId, supplierId,
     } = parsed.data
 
-    const product = await prisma.product.create({
-      data: {
-        name,
-        description:  description  ?? null,
-        sku:          sku          ?? null,
-        price,
-        costPrice:    costPrice    ?? null,
-        stock,
-        minStock,
-        unit,
-        origin:       origin       ?? null,
-        categoryId:   categoryId   ?? null,
-        supplierId:   supplierId   ?? null,
-        businessId:   session.user.businessId,
-      },
-      include: { category: true, supplier: true },
+    const product = await prisma.$transaction(async (tx) => {
+      const newProduct = await tx.product.create({
+        data: {
+          name,
+          description: description ?? null,
+          sku:         sku         ?? null,
+          price,
+          costPrice:   costPrice   ?? null,
+          unit,
+          origin:      origin      ?? null,
+          categoryId:  categoryId  ?? null,
+          supplierId:  supplierId  ?? null,
+          businessId:  ctx.session.user.businessId,
+        },
+        include: { category: true, supplier: true },
+      })
+
+      // Create BranchInventory for ALL active branches (stock 0 on others, initial on selected)
+      const allBranches = await tx.branch.findMany({
+        where:  { businessId: ctx.session.user.businessId, isActive: true },
+        select: { id: true },
+      })
+      await tx.branchInventory.createMany({
+        data: allBranches.map(b => ({
+          branchId:  b.id,
+          productId: newProduct.id,
+          stock:     b.id === branchId ? (stock ?? 0) : 0,
+          minStock:  b.id === branchId ? (minStock ?? 5) : 5,
+        })),
+        skipDuplicates: true,
+      })
+
+      // Log initial stock movement if stock > 0
+      if ((stock ?? 0) > 0) {
+        await tx.stockMovement.create({
+          data: {
+            type:      "IMPORT",
+            quantity:  stock,
+            reason:    "Initial stock on product creation",
+            productId: newProduct.id,
+            branchId,
+            userId:    ctx.session.user.id,
+          },
+        })
+      }
+
+      return newProduct
     })
 
-    if (product.stock > 0) {
-      await prisma.stockMovement.create({
-        data: {
-          type:      "IMPORT",
-          quantity:  product.stock,
-          reason:    "Initial stock on product creation",
-          productId: product.id,
-          userId: session.user.id 
-        },
-      })
-    }
+    createAuditLog({
+      businessId: ctx.session.user.businessId,
+      branchId,
+      userId:     ctx.session.user.id,
+      action:     "PRODUCT_CREATED",
+      entityType: "Product",
+      entityId:   product.id,
+      metadata:   { name: product.name, sku: product.sku, price: Number(product.price), stock },
+      ipAddress:  getIp(request),
+    })
 
-    return NextResponse.json(serialize(product), { status: 201 })
-
+    return NextResponse.json(serialize({ ...product, stock: stock ?? 0, minStock: minStock ?? 5 }), { status: 201 })
   } catch (error) {
     console.error("POST /api/products error:", error)
     return NextResponse.json({ error: "Failed to create product" }, { status: 500 })

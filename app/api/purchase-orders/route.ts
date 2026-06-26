@@ -1,14 +1,16 @@
 import { NextRequest, NextResponse } from "next/server"
-import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { CreatePurchaseOrderSchema } from "@/lib/validators"
 import { serialize } from "@/lib/serialize"
+import { createAuditLog } from "@/lib/audit"
+import { getIp } from "@/lib/rate-limit"
+import { requireBranchContext, isBranchContext, buildBranchWhere, getWriteBranchId } from "@/lib/branch-auth"
 
-// GET /api/purchase-orders — paginated
+// GET /api/purchase-orders — paginated, branch-scoped
 export async function GET(request: NextRequest) {
   try {
-    const session = await auth()
-    if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    const ctx = await requireBranchContext(request)
+    if (!isBranchContext(ctx)) return ctx
 
     const { searchParams } = request.nextUrl
     const page   = Math.max(1, parseInt(searchParams.get("page")   ?? "1"))
@@ -16,7 +18,7 @@ export async function GET(request: NextRequest) {
     const skip   = (page - 1) * limit
     const status = searchParams.get("status")
 
-    const where: Record<string, unknown> = { businessId: session.user.businessId }
+    const where: Record<string, unknown> = buildBranchWhere(ctx)
     if (status) where.status = status
 
     const [orders, total] = await prisma.$transaction([
@@ -25,7 +27,8 @@ export async function GET(request: NextRequest) {
         include: {
           supplier:  { select: { id: true, name: true } },
           createdBy: { select: { id: true, name: true } },
-          items:     {
+          branch:    { select: { name: true, code: true } },
+          items: {
             include: { product: { select: { id: true, name: true, unit: true } } },
           },
         },
@@ -40,7 +43,6 @@ export async function GET(request: NextRequest) {
       data: serialize(orders),
       meta: { total, page, limit, pages: Math.ceil(total / limit) },
     })
-
   } catch (error) {
     console.error(error)
     return NextResponse.json({ error: "Failed to fetch purchase orders" }, { status: 500 })
@@ -50,12 +52,23 @@ export async function GET(request: NextRequest) {
 // POST /api/purchase-orders — OWNER and MANAGER
 export async function POST(request: NextRequest) {
   try {
-    const session = await auth()
-    if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    const ctx = await requireBranchContext(request, { requireBranch: true })
+    if (!isBranchContext(ctx)) return ctx
 
-    if (!["OWNER", "MANAGER"].includes(session.user.role)) {
+    if (!["OWNER", "MANAGER"].includes(ctx.session.user.role)) {
       return NextResponse.json({ error: "Permission denied" }, { status: 403 })
     }
+
+    const branchId = getWriteBranchId(ctx, new URL(request.url).searchParams.get("branchId"))
+    if (!branchId) {
+      return NextResponse.json({ error: "Select a branch before creating a purchase order" }, { status: 400 })
+    }
+
+    const branch = await prisma.branch.findFirst({
+      where: { id: branchId, businessId: ctx.session.user.businessId, isActive: true },
+      select: { code: true },
+    })
+    if (!branch) return NextResponse.json({ error: "Branch not found" }, { status: 404 })
 
     const body   = await request.json()
     const parsed = CreatePurchaseOrderSchema.safeParse(body)
@@ -63,9 +76,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 })
     }
 
-    // Verify supplier belongs to this business
     const supplier = await prisma.supplier.findFirst({
-      where: { id: parsed.data.supplierId, businessId: session.user.businessId },
+      where: { id: parsed.data.supplierId, businessId: ctx.session.user.businessId },
     })
     if (!supplier) return NextResponse.json({ error: "Supplier not found" }, { status: 404 })
 
@@ -73,11 +85,11 @@ export async function POST(request: NextRequest) {
       (sum, item) => sum + item.quantity * item.unitCost, 0
     )
 
-    // Generate PO number: PO-YYYYMM-NNNN
-    const count    = await prisma.purchaseOrder.count({ where: { businessId: session.user.businessId } })
+    // Branch-scoped PO number: PO-{CODE}-{YYYYMM}-{SEQ}
+    const count    = await prisma.purchaseOrder.count({ where: { branchId } })
     const now      = new Date()
     const ym       = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}`
-    const poNumber = `PO-${ym}-${String(count + 1).padStart(4, "0")}`
+    const poNumber = `PO-${branch.code}-${ym}-${String(count + 1).padStart(4, "0")}`
 
     const po = await prisma.purchaseOrder.create({
       data: {
@@ -86,8 +98,9 @@ export async function POST(request: NextRequest) {
         expectedDate: parsed.data.expectedDate ? new Date(parsed.data.expectedDate) : null,
         notes:        parsed.data.notes ?? null,
         totalCost,
-        businessId:   session.user.businessId,
-        createdById:  session.user.id,
+        businessId:   ctx.session.user.businessId,
+        branchId,
+        createdById:  ctx.session.user.id,
         items: {
           create: parsed.data.items.map(item => ({
             productId: item.productId,
@@ -99,14 +112,25 @@ export async function POST(request: NextRequest) {
       include: {
         supplier:  { select: { id: true, name: true } },
         createdBy: { select: { id: true, name: true } },
-        items:     {
+        branch:    { select: { name: true, code: true } },
+        items: {
           include: { product: { select: { id: true, name: true, unit: true } } },
         },
       },
     })
 
-    return NextResponse.json(serialize(po), { status: 201 })
+    createAuditLog({
+      businessId: ctx.session.user.businessId,
+      branchId,
+      userId:     ctx.session.user.id,
+      action:     "PURCHASE_ORDER_CREATED",
+      entityType: "PurchaseOrder",
+      entityId:   po.id,
+      metadata:   { poNumber: po.poNumber, supplierName: po.supplier.name, totalCost },
+      ipAddress:  getIp(request),
+    })
 
+    return NextResponse.json(serialize(po), { status: 201 })
   } catch (error) {
     console.error(error)
     return NextResponse.json({ error: "Failed to create purchase order" }, { status: 500 })

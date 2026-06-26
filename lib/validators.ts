@@ -35,6 +35,8 @@ export const UpdateProductSchema = CreateProductSchema.partial().extend({
 export const CreateOrderSchema = z.object({
   customerName:  z.string().min(1, "Customer name is required").max(200),
   customerPhone: z.string().max(50).optional().nullable(),
+  customerId:    z.cuid().optional().nullable(),
+  paymentTerms:  z.enum(["COD", "NET_7", "NET_14", "NET_30", "NET_60"]).default("COD"),
   notes:         z.string().max(1000).optional().nullable(),
   items: z.array(z.object({
     productId: z.cuid("Invalid product ID"),
@@ -153,4 +155,40 @@ export const CreateStaffSchema = z.object({
   email:    z.email("Invalid email"),
   password: z.string().min(8, "Password must be at least 8 characters"),
   role:     z.enum(["MANAGER", "STAFF"]),
+})
+
+// ── BRANCHES ──────────────────────────────────────────────────────────────────
+
+export const CreateBranchSchema = z.object({
+  name:    z.string().min(2, "Branch name must be at least 2 characters").max(200),
+  code:    z.string().min(1, "Branch code is required").max(10).toUpperCase()
+             .regex(/^[A-Z0-9]+$/, "Code must contain only letters and numbers"),
+  address: z.string().max(500).optional().nullable(),
+  phone:   z.string().max(50).optional().nullable(),
+})
+
+export const UpdateBranchSchema = z.object({
+  name:     z.string().min(2).max(200).optional(),
+  address:  z.string().max(500).optional().nullable(),
+  phone:    z.string().max(50).optional().nullable(),
+  isActive: z.boolean().optional(),
+})
+
+export const AssignBranchUserSchema = z.object({
+  userId: z.cuid("Invalid user ID"),
+})
+
+// ── STOCK TRANSFERS ───────────────────────────────────────────────────────────
+
+export const CreateStockTransferSchema = z.object({
+  fromBranchId: z.cuid("Invalid source branch"),
+  toBranchId:   z.cuid("Invalid destination branch"),
+  productId:    z.cuid("Invalid product"),
+  quantity:     z.number().int().positive("Quantity must be at least 1"),
+  notes:        z.string().max(500).optional().nullable(),
+})
+
+export const UpdateStockTransferSchema = z.object({
+  status: z.enum(["APPROVED", "COMPLETED", "REJECTED"]),
+  notes:  z.string().max(500).optional().nullable(),
 })

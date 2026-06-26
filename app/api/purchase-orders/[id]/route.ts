@@ -21,7 +21,7 @@ export async function GET(
         supplier:  { select: { id: true, name: true, phone: true, email: true } },
         createdBy: { select: { id: true, name: true } },
         items:     {
-          include: { product: { select: { id: true, name: true, unit: true, stock: true } } },
+          include: { product: { select: { id: true, name: true, unit: true } } },
         },
       },
     })

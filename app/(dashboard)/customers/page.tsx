@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react"
 import { Plus, Search, Users, Pencil, Trash2, X, Loader2, Phone, Mail, Receipt } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { useTranslations } from "next-intl"
 import CreditNoteModal from "@/components/customers/CreditNoteModal"
 
 interface Customer {
@@ -31,6 +32,9 @@ function CustomerModal({
   onSave: (data: Partial<Customer>) => Promise<void>
   customer: Customer | null
 }) {
+  const t       = useTranslations("customers")
+  const tCommon = useTranslations("common")
+
   const [name,    setName]    = useState(customer?.name    ?? "")
   const [phone,   setPhone]   = useState(customer?.phone   ?? "")
   const [email,   setEmail]   = useState(customer?.email   ?? "")
@@ -41,13 +45,13 @@ function CustomerModal({
 
   async function handleSubmit(e: React.SyntheticEvent) {
     e.preventDefault()
-    if (!name.trim()) { setError("Customer name is required"); return }
+    if (!name.trim()) { setError(t("nameRequired")); return }
     setLoading(true)
     try {
       await onSave({ name, phone: phone || null, email: email || null, address: address || null, notes: notes || null })
       onClose()
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Something went wrong")
+      setError(err instanceof Error ? err.message : tCommon("somethingWrong"))
     } finally {
       setLoading(false)
     }
@@ -61,7 +65,7 @@ function CustomerModal({
       <div className="relative z-10 w-full max-w-lg bg-[var(--card)] rounded-2xl shadow-2xl">
         <div className="flex items-center justify-between p-6 border-b border-[var(--border)]">
           <h2 className="text-lg font-bold text-[var(--foreground)]">
-            {customer ? "Edit Customer" : "New Customer"}
+            {customer ? t("editCustomer") : t("newCustomer")}
           </h2>
           <button onClick={onClose} className="p-2 rounded-lg hover:bg-[var(--background)] transition-colors">
             <X size={18} className="text-[var(--muted)]" />
@@ -70,33 +74,36 @@ function CustomerModal({
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           {error && <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg p-3">{error}</p>}
           <div>
-            <label className="block text-sm font-medium text-[var(--foreground)] mb-1.5">Name *</label>
+            <label className="block text-sm font-medium text-[var(--foreground)] mb-1.5">{tCommon("name")} *</label>
             <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Karemera Furniture Store" className={inputClass} />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-sm font-medium text-[var(--foreground)] mb-1.5">Phone</label>
+              <label className="block text-sm font-medium text-[var(--foreground)] mb-1.5">{tCommon("phone")}</label>
               <input type="text" value={phone} onChange={e => setPhone(e.target.value)} placeholder="+250 788 000 000" className={inputClass} />
             </div>
             <div>
-              <label className="block text-sm font-medium text-[var(--foreground)] mb-1.5">Email</label>
+              <label className="block text-sm font-medium text-[var(--foreground)] mb-1.5">{tCommon("email")}</label>
               <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="optional@email.com" className={inputClass} />
             </div>
           </div>
           <div>
-            <label className="block text-sm font-medium text-[var(--foreground)] mb-1.5">Address</label>
+            <label className="block text-sm font-medium text-[var(--foreground)] mb-1.5">{tCommon("address")}</label>
             <input type="text" value={address} onChange={e => setAddress(e.target.value)} placeholder="Kigali, Nyarugenge..." className={inputClass} />
           </div>
           <div>
-            <label className="block text-sm font-medium text-[var(--foreground)] mb-1.5">Notes</label>
+            <label className="block text-sm font-medium text-[var(--foreground)] mb-1.5">{tCommon("notes")}</label>
             <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Any notes about this customer..." rows={2} className={`${inputClass} resize-none`} />
           </div>
           <div className="flex gap-3 pt-2">
             <Button type="button" onClick={onClose} className="flex-1 py-2.5 bg-[var(--background)] border border-[var(--border)] text-[var(--foreground)] rounded-lg hover:bg-[var(--border)] transition-colors">
-              Cancel
+              {tCommon("cancel")}
             </Button>
             <Button type="submit" disabled={loading} className="flex-1 py-2.5 bg-baraka-primary hover:bg-baraka-dark text-white rounded-lg transition-colors disabled:opacity-50">
-              {loading ? <span className="flex items-center justify-center gap-2"><Loader2 size={16} className="animate-spin" /> Saving...</span> : (customer ? "Save Changes" : "Add Customer")}
+              {loading
+                ? <span className="flex items-center justify-center gap-2"><Loader2 size={16} className="animate-spin" /> {tCommon("saving")}</span>
+                : (customer ? tCommon("saveChanges") : t("addCustomer"))
+              }
             </Button>
           </div>
         </form>
@@ -107,6 +114,9 @@ function CustomerModal({
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 export default function CustomersPage() {
+  const t       = useTranslations("customers")
+  const tCommon = useTranslations("common")
+
   const [customers,  setCustomers]  = useState<Customer[]>([])
   const [meta,       setMeta]       = useState<Meta>({ total: 0, page: 1, limit: 50, pages: 0 })
   const [isLoading,  setIsLoading]  = useState(true)
@@ -135,7 +145,6 @@ export default function CustomersPage() {
     const isEdit = !!modal.customer
     const url    = isEdit ? `/api/customers/${modal.customer!.id}` : "/api/customers"
     const method = isEdit ? "PATCH" : "POST"
-
     const res = await fetch(url, {
       method,
       headers: { "Content-Type": "application/json" },
@@ -143,13 +152,13 @@ export default function CustomersPage() {
     })
     if (!res.ok) {
       const err = await res.json()
-      throw new Error(err.error || "Failed to save customer")
+      throw new Error(err.error || t("failedToLoad"))
     }
     refresh()
   }
 
   async function handleDelete(id: string) {
-    if (!confirm("Delete this customer? Their orders will not be deleted.")) return
+    if (!confirm(t("deleteConfirm"))) return
     setDeletingId(id)
     await fetch(`/api/customers/${id}`, { method: "DELETE" })
     setCustomers(prev => prev.filter(c => c.id !== id))
@@ -165,22 +174,22 @@ export default function CustomersPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-[var(--foreground)]">Customers</h1>
-          <p className="text-sm text-[var(--muted)] mt-1">{meta.total} customers</p>
+          <h1 className="text-2xl font-bold text-[var(--foreground)]">{t("title")}</h1>
+          <p className="text-sm text-[var(--muted)] mt-1">{t("customerCount", { count: meta.total })}</p>
         </div>
         <Button onClick={() => setModal({ open: true, customer: null })} className="flex items-center gap-2 bg-baraka-primary hover:bg-baraka-dark text-white px-4 py-2.5 rounded-lg transition-colors">
-          <Plus size={18} /> Add Customer
+          <Plus size={18} /> {t("addCustomer")}
         </Button>
       </div>
 
       {/* Summary cards */}
       <div className="grid grid-cols-2 gap-4">
         <div className="bg-[var(--card)] rounded-xl p-4 border border-[var(--border)]">
-          <p className="text-xs text-[var(--muted)] mb-1">Total Customers</p>
+          <p className="text-xs text-[var(--muted)] mb-1">{t("totalCustomers")}</p>
           <p className="text-2xl font-bold text-[var(--foreground)]">{meta.total}</p>
         </div>
         <div className="bg-[var(--card)] rounded-xl p-4 border border-[var(--border)]">
-          <p className="text-xs text-[var(--muted)] mb-1">Outstanding Balance</p>
+          <p className="text-xs text-[var(--muted)] mb-1">{t("outstandingBalance")}</p>
           <p className="text-2xl font-bold text-red-600">{formatRWF(totalOutstanding)}</p>
         </div>
       </div>
@@ -190,7 +199,7 @@ export default function CustomersPage() {
         <Search size={16} className="text-[var(--muted)]" />
         <input
           type="text"
-          placeholder="Search by name, phone, or email..."
+          placeholder={t("searchPlaceholder")}
           value={search}
           onChange={e => { setSearch(e.target.value); setPage(1) }}
           className="bg-transparent text-sm outline-none text-[var(--foreground)] placeholder:text-[var(--muted)] w-full"
@@ -206,19 +215,19 @@ export default function CustomersPage() {
         ) : customers.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 gap-3">
             <Users size={40} className="text-baraka-sage/40" />
-            <p className="text-sm font-medium text-[var(--foreground)]">{search ? "No customers match your search" : "No customers yet"}</p>
-            <p className="text-xs text-[var(--muted)]">Add your first customer to start tracking their orders and balances.</p>
+            <p className="text-sm font-medium text-[var(--foreground)]">{search ? t("noCustomersMatch") : t("noCustomers")}</p>
+            <p className="text-xs text-[var(--muted)]">{t("addFirstHint")}</p>
           </div>
         ) : (
           <>
             <table className="w-full">
               <thead>
                 <tr className="border-b border-[var(--border)] bg-[var(--background)]">
-                  <th className="text-left text-xs font-semibold text-[var(--muted)] px-6 py-3 uppercase tracking-wide">Customer</th>
-                  <th className="text-left text-xs font-semibold text-[var(--muted)] px-4 py-3 uppercase tracking-wide">Contact</th>
-                  <th className="text-left text-xs font-semibold text-[var(--muted)] px-4 py-3 uppercase tracking-wide">Orders</th>
-                  <th className="text-left text-xs font-semibold text-[var(--muted)] px-4 py-3 uppercase tracking-wide">Outstanding</th>
-                  <th className="text-right text-xs font-semibold text-[var(--muted)] px-6 py-3 uppercase tracking-wide">Actions</th>
+                  <th className="text-left text-xs font-semibold text-[var(--muted)] px-6 py-3 uppercase tracking-wide">{tCommon("customer")}</th>
+                  <th className="text-left text-xs font-semibold text-[var(--muted)] px-4 py-3 uppercase tracking-wide">{t("colContact")}</th>
+                  <th className="text-left text-xs font-semibold text-[var(--muted)] px-4 py-3 uppercase tracking-wide">{t("totalOrders")}</th>
+                  <th className="text-left text-xs font-semibold text-[var(--muted)] px-4 py-3 uppercase tracking-wide">{t("outstandingBalance")}</th>
+                  <th className="text-right text-xs font-semibold text-[var(--muted)] px-6 py-3 uppercase tracking-wide">{tCommon("actions")}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[var(--border)]">
@@ -245,13 +254,13 @@ export default function CustomersPage() {
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex items-center justify-end gap-2">
-                        <button onClick={() => setCnCustomer(c)} className="p-2 rounded-lg hover:bg-purple-50 text-baraka-sage hover:text-purple-600 transition-colors" title="Issue credit note">
+                        <button onClick={() => setCnCustomer(c)} className="p-2 rounded-lg hover:bg-purple-50 text-baraka-sage hover:text-purple-600 transition-colors" title={t("issueCreditNote")}>
                           <Receipt size={15} />
                         </button>
-                        <button onClick={() => setModal({ open: true, customer: c })} className="p-2 rounded-lg hover:bg-baraka-primary/10 text-baraka-sage hover:text-baraka-primary transition-colors" title="Edit">
+                        <button onClick={() => setModal({ open: true, customer: c })} className="p-2 rounded-lg hover:bg-baraka-primary/10 text-baraka-sage hover:text-baraka-primary transition-colors" title={tCommon("edit")}>
                           <Pencil size={15} />
                         </button>
-                        <button onClick={() => handleDelete(c.id)} disabled={deletingId === c.id} className="p-2 rounded-lg hover:bg-red-50 text-baraka-sage hover:text-red-500 transition-colors disabled:opacity-50" title="Delete">
+                        <button onClick={() => handleDelete(c.id)} disabled={deletingId === c.id} className="p-2 rounded-lg hover:bg-red-50 text-baraka-sage hover:text-red-500 transition-colors disabled:opacity-50" title={tCommon("delete")}>
                           <Trash2 size={15} />
                         </button>
                       </div>
@@ -265,12 +274,12 @@ export default function CustomersPage() {
             {meta.pages > 1 && (
               <div className="flex items-center justify-between px-6 py-4 border-t border-[var(--border)]">
                 <p className="text-sm text-[var(--muted)]">
-                  Showing {Math.min((meta.page - 1) * meta.limit + 1, meta.total)}–{Math.min(meta.page * meta.limit, meta.total)} of {meta.total}
+                  {tCommon("showingOf", { from: Math.min((meta.page - 1) * meta.limit + 1, meta.total), to: Math.min(meta.page * meta.limit, meta.total), total: meta.total })}
                 </p>
                 <div className="flex items-center gap-2">
-                  <button onClick={() => setPage(p => p - 1)} disabled={meta.page <= 1} className="px-3 py-1.5 text-sm rounded-lg border border-[var(--border)] bg-[var(--card)] hover:bg-[var(--background)] disabled:opacity-40 transition-colors">Previous</button>
-                  <span className="text-sm text-[var(--muted)] px-1">Page {meta.page} of {meta.pages}</span>
-                  <button onClick={() => setPage(p => p + 1)} disabled={meta.page >= meta.pages} className="px-3 py-1.5 text-sm rounded-lg border border-[var(--border)] bg-[var(--card)] hover:bg-[var(--background)] disabled:opacity-40 transition-colors">Next</button>
+                  <button onClick={() => setPage(p => p - 1)} disabled={meta.page <= 1} className="px-3 py-1.5 text-sm rounded-lg border border-[var(--border)] bg-[var(--card)] hover:bg-[var(--background)] disabled:opacity-40 transition-colors">{tCommon("previous")}</button>
+                  <span className="text-sm text-[var(--muted)] px-1">{tCommon("pageOf", { page: meta.page, pages: meta.pages })}</span>
+                  <button onClick={() => setPage(p => p + 1)} disabled={meta.page >= meta.pages} className="px-3 py-1.5 text-sm rounded-lg border border-[var(--border)] bg-[var(--card)] hover:bg-[var(--background)] disabled:opacity-40 transition-colors">{tCommon("next")}</button>
                 </div>
               </div>
             )}

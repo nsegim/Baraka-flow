@@ -3,6 +3,8 @@
 import Link from "next/link"
 import Image from "next/image"
 import { usePathname } from "next/navigation"
+import { useSession } from "next-auth/react"
+import { useTranslations } from "next-intl"
 import {
   LayoutDashboard,
   Package,
@@ -15,30 +17,48 @@ import {
   Receipt,
   AlertTriangle,
   UserCog,
+  ShieldCheck,
+  GitBranch,
+  ArrowLeftRight,
   X,
 } from "lucide-react"
 
-const navItems = [
-  { label: "Dashboard",       href: "/dashboard",       icon: LayoutDashboard },
-  { label: "Inventory",       href: "/inventory",       icon: Package         },
-  { label: "Stock Alerts",    href: "/stock-alerts",    icon: AlertTriangle   },
-  { label: "Orders",          href: "/orders",          icon: ShoppingCart    },
-  { label: "Customers",       href: "/customers",       icon: Users           },
-  { label: "Purchase Orders", href: "/purchase-orders", icon: ClipboardList   },
-  { label: "Expenses",        href: "/expenses",        icon: Receipt         },
-  { label: "Suppliers",       href: "/suppliers",       icon: Truck           },
-  { label: "Reports",         href: "/reports",         icon: BarChart3       },
-  { label: "Staff",           href: "/staff",           icon: UserCog         },
-  { label: "Settings",        href: "/settings",        icon: Settings        },
+interface NavItem {
+  key:       string
+  href:      string
+  icon:      React.ElementType
+  ownerOnly: boolean
+}
+
+const NAV_ITEMS: NavItem[] = [
+  { key: "dashboard",      href: "/dashboard",        icon: LayoutDashboard, ownerOnly: false },
+  { key: "inventory",      href: "/inventory",        icon: Package,         ownerOnly: false },
+  { key: "stockAlerts",    href: "/stock-alerts",     icon: AlertTriangle,   ownerOnly: false },
+  { key: "orders",         href: "/orders",           icon: ShoppingCart,    ownerOnly: false },
+  { key: "customers",      href: "/customers",        icon: Users,           ownerOnly: false },
+  { key: "purchaseOrders", href: "/purchase-orders",  icon: ClipboardList,   ownerOnly: false },
+  { key: "expenses",       href: "/expenses",         icon: Receipt,         ownerOnly: false },
+  { key: "suppliers",      href: "/suppliers",        icon: Truck,           ownerOnly: false },
+  { key: "reports",        href: "/reports",          icon: BarChart3,       ownerOnly: false },
+  { key: "branches",       href: "/branches",         icon: GitBranch,       ownerOnly: true  },
+  { key: "stockTransfers", href: "/stock-transfers",  icon: ArrowLeftRight,  ownerOnly: false },
+  { key: "staff",          href: "/staff",            icon: UserCog,         ownerOnly: true  },
+  { key: "auditLogs",      href: "/audit-logs",       icon: ShieldCheck,     ownerOnly: false },
+  { key: "settings",       href: "/settings",         icon: Settings,        ownerOnly: false },
 ]
 
 interface SidebarProps {
-  isOpen?: boolean
+  isOpen?:  boolean
   onClose?: () => void
 }
 
 export default function Sidebar({ isOpen, onClose }: SidebarProps) {
-  const pathname = usePathname()
+  const pathname              = usePathname()
+  const { data: session }     = useSession()
+  const t                     = useTranslations("nav")
+  const isOwner               = session?.user?.role === "OWNER"
+
+  const visibleItems = NAV_ITEMS.filter(item => !item.ownerOnly || isOwner)
 
   return (
     <aside className={`
@@ -60,12 +80,12 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
           />
           <div>
             <h1 className="font-bold text-lg text-white tracking-tight">
-              Baraka<span className="text-baraka-sage">Flow</span>
+              {t("appName").split("Flow")[0]}
+              <span className="text-baraka-sage">Flow</span>
             </h1>
-            <p className="text-xs text-baraka-cream/70">Inventory Management</p>
+            <p className="text-xs text-baraka-cream/70">{t("appTagline")}</p>
           </div>
         </div>
-        {/* Close button — only visible on mobile */}
         <button
           onClick={onClose}
           className="md:hidden p-1.5 rounded-lg text-baraka-sage hover:bg-white/10 hover:text-white transition-colors"
@@ -75,10 +95,10 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
       </div>
 
       {/* ── NAV ── */}
-      <nav className="flex-1 p-4 space-y-1">
-        {navItems.map((item) => {
-          const isActive = pathname === item.href
-          const Icon = item.icon
+      <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
+        {visibleItems.map((item) => {
+          const isActive = pathname === item.href || pathname.startsWith(item.href + "/")
+          const Icon     = item.icon
 
           return (
             <Link
@@ -97,7 +117,7 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
               `}
             >
               <Icon size={18} />
-              {item.label}
+              {t(item.key as Parameters<typeof t>[0])}
             </Link>
           )
         })}
@@ -105,9 +125,7 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
 
       {/* ── BOTTOM ── */}
       <div className="p-4 border-t border-white/10">
-        <p className="text-xs text-baraka-sage text-center">
-          BarakaFlow v1.0.0
-        </p>
+        <p className="text-xs text-baraka-sage text-center">{t("version")}</p>
       </div>
     </aside>
   )

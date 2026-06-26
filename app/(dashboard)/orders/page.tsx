@@ -9,6 +9,7 @@ import {
 import { Button } from "@/components/ui/button"
 import OrderModal from "@/components/orders/OrderModal"
 import Link from "next/link"
+import { useTranslations } from "next-intl"
 
 interface OrderItem {
   id:        string
@@ -50,33 +51,11 @@ const PAYMENT_STATUS_STYLES: Record<PaymentStatus, string> = {
   PAID:    "bg-emerald-100 text-emerald-700",
 }
 
-const METHOD_LABELS = {
-  CASH:          "Cash",
-  MOBILE_MONEY:  "Mobile Money",
-  BANK_TRANSFER: "Bank Transfer",
-  CREDIT:        "Credit",
-}
-
-// Status badge colors
 const statusStyles = {
   PENDING:   "bg-yellow-100 text-yellow-700",
   CONFIRMED: "bg-blue-100 text-blue-700",
   DELIVERED: "bg-emerald-100 text-emerald-700",
   CANCELLED: "bg-red-100 text-red-700",
-}
-
-// Next possible statuses for each current status
-const nextStatuses: Record<string, { label: string; value: string }[]> = {
-  PENDING:   [
-    { label: "Confirm Order",  value: "CONFIRMED" },
-    { label: "Cancel Order",   value: "CANCELLED" },
-  ],
-  CONFIRMED: [
-    { label: "Mark Delivered", value: "DELIVERED" },
-    { label: "Cancel Order",   value: "CANCELLED" },
-  ],
-  DELIVERED: [],
-  CANCELLED: [],
 }
 
 function formatRWF(amount: number) {
@@ -99,6 +78,9 @@ interface OrderMeta {
 }
 
 export default function OrdersPage() {
+  const t       = useTranslations("orders")
+  const tCommon = useTranslations("common")
+
   const [orders,         setOrders]         = useState<Order[]>([])
   const [meta,           setMeta]           = useState<OrderMeta>({ total: 0, page: 1, limit: 50, pages: 0 })
   const [isLoading,      setIsLoading]      = useState(true)
@@ -109,17 +91,14 @@ export default function OrdersPage() {
   const [deletingId,     setDeletingId]     = useState<string | null>(null)
   const [page,           setPage]           = useState(1)
   const [key,            setKey]            = useState(0)
-  // Delivery modal state
-  const [deliverOrder, setDeliverOrder] = useState<Order | null>(null)
-  const [deliveryNotes, setDeliveryNotes] = useState("")
-  const [delivering, setDelivering] = useState(false)
-  // Return modal state
-  const [returnOrder,      setReturnOrder]      = useState<Order | null>(null)
-  const [returnReason,     setReturnReason]      = useState("")
-  const [returnCredit,     setReturnCredit]      = useState(true)
-  const [returning,        setReturning]          = useState(false)
-  const [returnError,      setReturnError]        = useState("")
-  // Payment form state
+  const [deliverOrder,   setDeliverOrder]   = useState<Order | null>(null)
+  const [deliveryNotes,  setDeliveryNotes]  = useState("")
+  const [delivering,     setDelivering]     = useState(false)
+  const [returnOrder,    setReturnOrder]    = useState<Order | null>(null)
+  const [returnReason,   setReturnReason]   = useState("")
+  const [returnCredit,   setReturnCredit]   = useState(true)
+  const [returning,      setReturning]      = useState(false)
+  const [returnError,    setReturnError]    = useState("")
   const [paymentOrderId, setPaymentOrderId] = useState<string | null>(null)
   const [payAmount,      setPayAmount]      = useState("")
   const [payMethod,      setPayMethod]      = useState<Payment["method"]>("CASH")
@@ -127,7 +106,26 @@ export default function OrdersPage() {
   const [payLoading,     setPayLoading]     = useState(false)
   const [payError,       setPayError]       = useState("")
 
-  // All setState calls are inside the .then() callback — not synchronous in the effect body
+  const METHOD_LABELS = {
+    CASH:          tCommon("type") === "Type" ? "Cash" : "Cash",
+    MOBILE_MONEY:  "Mobile Money",
+    BANK_TRANSFER: t("paymentMethod.BANK_TRANSFER"),
+    CREDIT:        t("paymentMethod.CREDIT"),
+  }
+
+  const nextStatuses: Record<string, { label: string; value: string }[]> = {
+    PENDING:   [
+      { label: t("confirmOrder"),  value: "CONFIRMED" },
+      { label: t("cancelOrder"),   value: "CANCELLED" },
+    ],
+    CONFIRMED: [
+      { label: t("markDelivered"), value: "DELIVERED" },
+      { label: t("cancelOrder"),   value: "CANCELLED" },
+    ],
+    DELIVERED: [],
+    CANCELLED: [],
+  }
+
   useEffect(() => {
     fetch(`/api/orders?page=${page}&limit=50`)
       .then(r => r.json())
@@ -138,17 +136,16 @@ export default function OrdersPage() {
         setIsLoading(false)
       })
       .catch(() => {
-        setError("Failed to load orders")
+        setError(t("failedToLoad"))
         setIsLoading(false)
       })
-  }, [page, key])
+  }, [page, key]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const goToPage = useCallback((newPage: number) => {
     setIsLoading(true)
     setPage(newPage)
   }, [])
 
-  // Create new order
   async function handleSave(data: {
     customerName:  string
     customerPhone: string
@@ -165,17 +162,14 @@ export default function OrdersPage() {
       headers: { "Content-Type": "application/json" },
       body:    JSON.stringify(data)
     })
-
     if (!res.ok) {
       const err = await res.json()
       throw new Error(err.error)
     }
-
     const newOrder = await res.json()
     setOrders(prev => [newOrder, ...prev])
   }
 
-  // Update order status
   async function handleStatusChange(orderId: string, status: string, notes?: string | null) {
     setUpdatingId(orderId)
     try {
@@ -184,13 +178,11 @@ export default function OrdersPage() {
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify({ status, deliveryNotes: notes ?? null }),
       })
-
       if (!res.ok) throw new Error("Failed to update")
-
       const updated = await res.json()
       setOrders(prev => prev.map(o => o.id === orderId ? updated : o))
     } catch {
-      setError("Failed to update order status")
+      setError(t("failedToLoad"))
     } finally {
       setUpdatingId(null)
     }
@@ -198,7 +190,7 @@ export default function OrdersPage() {
 
   async function handleReturn() {
     if (!returnOrder) return
-    if (!returnReason.trim()) { setReturnError("Please provide a return reason"); return }
+    if (!returnReason.trim()) { setReturnError(tCommon("required")); return }
     setReturning(true)
     setReturnError("")
     try {
@@ -208,13 +200,13 @@ export default function OrdersPage() {
         body:    JSON.stringify({ reason: returnReason.trim(), issueCreditNote: returnCredit }),
       })
       const json = await res.json()
-      if (!res.ok) { setReturnError(json.error || "Failed to process return"); return }
+      if (!res.ok) { setReturnError(json.error || tCommon("somethingWrong")); return }
       setOrders(prev => prev.map(o => o.id === returnOrder.id ? json.order : o))
       setReturnOrder(null)
       setReturnReason("")
       setReturnCredit(true)
     } catch {
-      setReturnError("Failed to process return")
+      setReturnError(tCommon("somethingWrong"))
     } finally {
       setReturning(false)
     }
@@ -229,10 +221,9 @@ export default function OrdersPage() {
     setDeliveryNotes("")
   }
 
-  // Record payment
   async function handlePayment(orderId: string) {
     const amt = parseFloat(payAmount)
-    if (!amt || amt <= 0) { setPayError("Enter a valid amount"); return }
+    if (!amt || amt <= 0) { setPayError(tCommon("required")); return }
     setPayLoading(true)
     setPayError("")
     const res = await fetch("/api/payments", {
@@ -242,11 +233,10 @@ export default function OrdersPage() {
     })
     if (!res.ok) {
       const err = await res.json()
-      setPayError(err.error || "Failed to record payment")
+      setPayError(err.error || tCommon("somethingWrong"))
       setPayLoading(false)
       return
     }
-    // Refresh the single order in the list
     const refreshed = await fetch(`/api/orders/${orderId}`).then(r => r.json())
     setOrders(prev => prev.map(o => o.id === orderId ? refreshed : o))
     setPaymentOrderId(null)
@@ -256,26 +246,24 @@ export default function OrdersPage() {
     setPayLoading(false)
   }
 
-  // Delete order
   async function handleDelete(orderId: string) {
     setDeletingId(orderId)
     try {
       await fetch(`/api/orders/${orderId}`, { method: "DELETE" })
       setOrders(prev => prev.filter(o => o.id !== orderId))
     } catch {
-      setError("Failed to delete order")
+      setError(tCommon("somethingWrong"))
     } finally {
       setDeletingId(null)
     }
   }
 
-  // Summary numbers
-  const totalRevenue  = orders
-    .filter(o => o.status === "DELIVERED")
-    .reduce((sum, o) => sum + o.totalAmount, 0)
-
-  const pendingCount  = orders.filter(o => o.status === "PENDING").length
+  const totalRevenue   = orders.filter(o => o.status === "DELIVERED").reduce((sum, o) => sum + o.totalAmount, 0)
+  const pendingCount   = orders.filter(o => o.status === "PENDING").length
   const deliveredCount = orders.filter(o => o.status === "DELIVERED").length
+
+  const from = Math.min((meta.page - 1) * meta.limit + 1, meta.total)
+  const to   = Math.min(meta.page * meta.limit, meta.total)
 
   return (
     <div className="space-y-6">
@@ -283,54 +271,43 @@ export default function OrdersPage() {
       {/* ── HEADER ── */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-[var(--foreground)]">
-            Orders
-          </h1>
-          <p className="text-sm text-[var(--muted)] mt-1">
-            {meta.total} total orders
-          </p>
+          <h1 className="text-2xl font-bold text-[var(--foreground)]">{t("title")}</h1>
+          <p className="text-sm text-[var(--muted)] mt-1">{meta.total} {t("title").toLowerCase()}</p>
         </div>
         <div className="flex items-center gap-2">
           <button
             onClick={() => { setIsLoading(true); setKey(k => k + 1) }}
             className="p-2.5 rounded-lg bg-[var(--card)] border border-[var(--border)] hover:bg-[var(--background)] transition-colors"
-            title="Refresh orders"
+            title={tCommon("refresh")}
           >
             <RefreshCw size={16} className="text-[var(--muted)]" />
           </button>
           <Button
             onClick={() => setShowModal(true)}
-          className="
-            flex items-center gap-2
-            bg-baraka-primary hover:bg-baraka-dark
-            text-white px-4 py-2.5 rounded-lg
-            transition-colors
-          "
-        >
-          <Plus size={18} />
-          New Order
-        </Button>
+            className="flex items-center gap-2 bg-baraka-primary hover:bg-baraka-dark text-white px-4 py-2.5 rounded-lg transition-colors"
+          >
+            <Plus size={18} />
+            {t("newOrder")}
+          </Button>
         </div>
       </div>
 
       {/* ── SUMMARY CARDS ── */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-[var(--card)] rounded-xl p-4 border border-[var(--border)]">
-          <p className="text-xs text-[var(--muted)] mb-1">Total Revenue</p>
-          <p className="text-xl font-bold text-[var(--foreground)]">
-            {formatRWF(totalRevenue)}
-          </p>
-          <p className="text-xs text-baraka-sage mt-1">From delivered orders</p>
+          <p className="text-xs text-[var(--muted)] mb-1">{t("totalRevenue")}</p>
+          <p className="text-xl font-bold text-[var(--foreground)]">{formatRWF(totalRevenue)}</p>
+          <p className="text-xs text-baraka-sage mt-1">{t("fromDeliveredOrders")}</p>
         </div>
         <div className="bg-[var(--card)] rounded-xl p-4 border border-[var(--border)]">
-          <p className="text-xs text-[var(--muted)] mb-1">Pending Orders</p>
+          <p className="text-xs text-[var(--muted)] mb-1">{t("pendingOrders")}</p>
           <p className="text-xl font-bold text-yellow-600">{pendingCount}</p>
-          <p className="text-xs text-baraka-sage mt-1">Awaiting confirmation</p>
+          <p className="text-xs text-baraka-sage mt-1">{t("awaitingConfirmation")}</p>
         </div>
         <div className="bg-[var(--card)] rounded-xl p-4 border border-[var(--border)]">
-          <p className="text-xs text-[var(--muted)] mb-1">Delivered</p>
+          <p className="text-xs text-[var(--muted)] mb-1">{t("status.DELIVERED")}</p>
           <p className="text-xl font-bold text-emerald-600">{deliveredCount}</p>
-          <p className="text-xs text-baraka-sage mt-1">Successfully completed</p>
+          <p className="text-xs text-baraka-sage mt-1">{t("successfullyCompleted")}</p>
         </div>
       </div>
 
@@ -343,35 +320,21 @@ export default function OrdersPage() {
 
       {/* ── ERROR ── */}
       {error && (
-        <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-red-600 text-sm">
-          {error}
-        </div>
+        <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-red-600 text-sm">{error}</div>
       )}
 
       {/* ── EMPTY ── */}
       {!isLoading && orders.length === 0 && (
-        <div className="
-          flex flex-col items-center justify-center
-          py-16 gap-3
-          bg-[var(--card)] rounded-xl border border-[var(--border)]
-        ">
+        <div className="flex flex-col items-center justify-center py-16 gap-3 bg-[var(--card)] rounded-xl border border-[var(--border)]">
           <ShoppingCart size={40} className="text-baraka-sage/40" />
-          <p className="text-sm font-medium text-[var(--foreground)]">
-            No orders yet
-          </p>
-          <p className="text-xs text-[var(--muted)]">
-            Create your first order when a client makes a purchase
-          </p>
+          <p className="text-sm font-medium text-[var(--foreground)]">{t("noOrdersYet")}</p>
+          <p className="text-xs text-[var(--muted)]">{t("createFirstOrderHint")}</p>
           <Button
             onClick={() => setShowModal(true)}
-            className="
-              mt-2 flex items-center gap-2
-              bg-baraka-primary hover:bg-baraka-dark
-              text-white px-4 py-2 rounded-lg text-sm
-            "
+            className="mt-2 flex items-center gap-2 bg-baraka-primary hover:bg-baraka-dark text-white px-4 py-2 rounded-lg text-sm"
           >
             <Plus size={16} />
-            Create First Order
+            {t("createFirstOrder")}
           </Button>
         </div>
       )}
@@ -380,39 +343,19 @@ export default function OrdersPage() {
       {!isLoading && orders.length > 0 && (
         <div className="space-y-3">
           {orders.map(order => (
-            <div
-              key={order.id}
-              className="
-                bg-[var(--card)] rounded-xl
-                border border-[var(--border)]
-                overflow-hidden
-              "
-            >
+            <div key={order.id} className="bg-[var(--card)] rounded-xl border border-[var(--border)] overflow-hidden">
+
               {/* Order row */}
-              <div className="
-                flex items-center justify-between
-                p-4 cursor-pointer
-                hover:bg-[var(--background)]
-                transition-colors
-              "
-                onClick={() =>
-                  setExpandedId(
-                    expandedId === order.id ? null : order.id
-                  )
-                }
+              <div
+                className="flex items-center justify-between p-4 cursor-pointer hover:bg-[var(--background)] transition-colors"
+                onClick={() => setExpandedId(expandedId === order.id ? null : order.id)}
               >
-                {/* Left — order info */}
                 <div className="flex items-center gap-4">
                   <div>
                     <div className="flex items-center gap-2">
-                      <span className="text-sm font-bold text-[var(--foreground)]">
-                        {order.orderNumber}
-                      </span>
-                      <span className={`
-                        text-xs px-2 py-0.5 rounded-full font-medium
-                        ${statusStyles[order.status]}
-                      `}>
-                        {order.status}
+                      <span className="text-sm font-bold text-[var(--foreground)]">{order.orderNumber}</span>
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${statusStyles[order.status]}`}>
+                        {t(`status.${order.status}`)}
                       </span>
                     </div>
                     <p className="text-sm text-[var(--muted)] mt-0.5">
@@ -422,22 +365,14 @@ export default function OrdersPage() {
                   </div>
                 </div>
 
-                {/* Right — amount + date + expand */}
                 <div className="flex items-center gap-4">
                   <div className="text-right">
-                    <p className="text-sm font-bold text-[var(--foreground)]">
-                      {formatRWF(order.totalAmount)}
-                    </p>
-                    <p className="text-xs text-[var(--muted)]">
-                      {formatDate(order.createdAt)}
-                    </p>
+                    <p className="text-sm font-bold text-[var(--foreground)]">{formatRWF(order.totalAmount)}</p>
+                    <p className="text-xs text-[var(--muted)]">{formatDate(order.createdAt)}</p>
                   </div>
                   <ChevronDown
                     size={16}
-                    className={`
-                      text-baraka-sage transition-transform
-                      ${expandedId === order.id ? "rotate-180" : ""}
-                    `}
+                    className={`text-baraka-sage transition-transform ${expandedId === order.id ? "rotate-180" : ""}`}
                   />
                 </div>
               </div>
@@ -448,7 +383,9 @@ export default function OrdersPage() {
 
                   {/* Items */}
                   <div>
-                    <p className="text-xs font-semibold text-[var(--muted)] mb-2 uppercase tracking-wide">Order Items</p>
+                    <p className="text-xs font-semibold text-[var(--muted)] mb-2 uppercase tracking-wide">
+                      {t("orderItems")}
+                    </p>
                     <div className="space-y-1">
                       {order.items.map(item => (
                         <div key={item.id} className="flex justify-between text-sm py-1">
@@ -462,15 +399,16 @@ export default function OrdersPage() {
                         </div>
                       ))}
                     </div>
+
                     {/* Payment summary */}
                     <div className="mt-2 pt-2 border-t border-dashed border-[var(--border)] flex justify-between items-center">
                       <div className="flex items-center gap-2">
                         <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${PAYMENT_STATUS_STYLES[order.paymentStatus]}`}>
-                          {order.paymentStatus}
+                          {t(`payment.${order.paymentStatus}`)}
                         </span>
                         {(order.amountPaid ?? 0) > 0 && (
                           <span className="text-xs text-[var(--muted)]">
-                            Paid: {formatRWF(order.amountPaid)} / {formatRWF(order.totalAmount)}
+                            {t("paidOf", { paid: formatRWF(order.amountPaid), total: formatRWF(order.totalAmount) })}
                           </span>
                         )}
                       </div>
@@ -488,7 +426,7 @@ export default function OrdersPage() {
                             }}
                             className="flex items-center gap-1 text-xs bg-baraka-primary/10 text-baraka-primary hover:bg-baraka-primary hover:text-white px-2.5 py-1 rounded-lg transition-colors"
                           >
-                            <CreditCard size={13} /> Record Payment
+                            <CreditCard size={13} /> {t("recordPayment")}
                           </button>
                         )}
                       </div>
@@ -498,7 +436,9 @@ export default function OrdersPage() {
                   {/* Inline payment form */}
                   {paymentOrderId === order.id && (
                     <div className="bg-[var(--background)] rounded-lg p-4 border border-[var(--border)] space-y-3">
-                      <p className="text-xs font-semibold text-[var(--foreground)] uppercase tracking-wide">Record Payment</p>
+                      <p className="text-xs font-semibold text-[var(--foreground)] uppercase tracking-wide">
+                        {t("recordPaymentTitle")}
+                      </p>
                       {payError && <p className="text-xs text-red-600">{payError}</p>}
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                         <input
@@ -525,10 +465,10 @@ export default function OrdersPage() {
                       </div>
                       <div className="flex gap-2">
                         <Button onClick={() => handlePayment(order.id)} disabled={payLoading} className="bg-baraka-primary hover:bg-baraka-dark text-white text-xs px-4 py-2 rounded-lg transition-colors disabled:opacity-50">
-                          {payLoading ? "Saving..." : "Save Payment"}
+                          {payLoading ? t("savingPayment") : t("savePayment")}
                         </Button>
                         <Button onClick={() => setPaymentOrderId(null)} className="bg-[var(--background)] border border-[var(--border)] text-[var(--foreground)] text-xs px-4 py-2 rounded-lg hover:bg-[var(--border)] transition-colors">
-                          Cancel
+                          {tCommon("cancel")}
                         </Button>
                       </div>
                     </div>
@@ -537,7 +477,9 @@ export default function OrdersPage() {
                   {/* Payment history */}
                   {order.payments && order.payments.length > 0 && (
                     <div>
-                      <p className="text-xs font-semibold text-[var(--muted)] mb-2 uppercase tracking-wide">Payments</p>
+                      <p className="text-xs font-semibold text-[var(--muted)] mb-2 uppercase tracking-wide">
+                        {t("paymentsLabel")}
+                      </p>
                       <div className="space-y-1">
                         {order.payments.map(p => (
                           <div key={p.id} className="flex justify-between text-sm py-1">
@@ -556,7 +498,9 @@ export default function OrdersPage() {
                   {/* Notes */}
                   {order.notes && (
                     <div>
-                      <p className="text-xs font-semibold text-[var(--muted)] mb-1 uppercase tracking-wide">Notes</p>
+                      <p className="text-xs font-semibold text-[var(--muted)] mb-1 uppercase tracking-wide">
+                        {tCommon("notes")}
+                      </p>
                       <p className="text-sm text-[var(--foreground)]">{order.notes}</p>
                     </div>
                   )}
@@ -579,7 +523,7 @@ export default function OrdersPage() {
                               : "bg-baraka-primary text-white hover:bg-baraka-dark"
                           }`}
                         >
-                          {updatingId === order.id ? "Updating..." : next.label}
+                          {updatingId === order.id ? tCommon("updating") : next.label}
                         </Button>
                       ))}
                       {order.status === "DELIVERED" && (
@@ -588,7 +532,7 @@ export default function OrdersPage() {
                           className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-orange-50 text-orange-600 hover:bg-orange-100 transition-colors"
                         >
                           <RotateCcw size={13} />
-                          Return Order
+                          {t("returnOrder")}
                         </Button>
                       )}
                     </div>
@@ -599,7 +543,7 @@ export default function OrdersPage() {
                         className="flex items-center gap-1.5 text-xs text-baraka-sage hover:text-red-500 transition-colors disabled:opacity-50"
                       >
                         <Trash2 size={13} />
-                        {deletingId === order.id ? "Deleting..." : "Delete"}
+                        {deletingId === order.id ? tCommon("deleting") : tCommon("delete")}
                       </button>
                     )}
                   </div>
@@ -615,48 +559,31 @@ export default function OrdersPage() {
       {!isLoading && meta.pages > 1 && (
         <div className="flex items-center justify-between px-1 py-2">
           <p className="text-sm text-[var(--muted)]">
-            Showing{" "}
-            {Math.min((meta.page - 1) * meta.limit + 1, meta.total)}–
-            {Math.min(meta.page * meta.limit, meta.total)}{" "}
-            of {meta.total} orders
+            {t("showingOfOrders", { from, to, total: meta.total })}
           </p>
           <div className="flex items-center gap-2">
             <button
               onClick={() => goToPage(meta.page - 1)}
               disabled={meta.page <= 1}
-              className="
-                px-3 py-1.5 text-sm rounded-lg
-                border border-[var(--border)]
-                bg-[var(--card)] text-[var(--foreground)]
-                hover:bg-[var(--background)]
-                disabled:opacity-40 disabled:cursor-not-allowed
-                transition-colors
-              "
+              className="px-3 py-1.5 text-sm rounded-lg border border-[var(--border)] bg-[var(--card)] text-[var(--foreground)] hover:bg-[var(--background)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
-              Previous
+              {tCommon("previous")}
             </button>
             <span className="text-sm text-[var(--muted)] px-2">
-              Page {meta.page} of {meta.pages}
+              {tCommon("pageOf", { page: meta.page, pages: meta.pages })}
             </span>
             <button
               onClick={() => goToPage(meta.page + 1)}
               disabled={meta.page >= meta.pages}
-              className="
-                px-3 py-1.5 text-sm rounded-lg
-                border border-[var(--border)]
-                bg-[var(--card)] text-[var(--foreground)]
-                hover:bg-[var(--background)]
-                disabled:opacity-40 disabled:cursor-not-allowed
-                transition-colors
-              "
+              className="px-3 py-1.5 text-sm rounded-lg border border-[var(--border)] bg-[var(--card)] text-[var(--foreground)] hover:bg-[var(--background)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
-              Next
+              {tCommon("next")}
             </button>
           </div>
         </div>
       )}
 
-      {/* ── MODAL ── */}
+      {/* ── ORDER MODAL ── */}
       <OrderModal
         isOpen={showModal}
         onClose={() => setShowModal(false)}
@@ -673,7 +600,7 @@ export default function OrdersPage() {
                   <RotateCcw size={18} className="text-orange-600" />
                 </div>
                 <div>
-                  <h2 className="font-semibold text-[var(--foreground)]">Return Order</h2>
+                  <h2 className="font-semibold text-[var(--foreground)]">{t("returnOrderTitle")}</h2>
                   <p className="text-xs text-[var(--muted)]">{returnOrder.orderNumber} · {returnOrder.customerName}</p>
                 </div>
               </div>
@@ -683,18 +610,18 @@ export default function OrdersPage() {
             </div>
             <div className="p-5 space-y-4">
               <p className="text-sm text-[var(--muted)]">
-                This will restock all items and mark the order as returned. Total: <strong className="text-[var(--foreground)]">RWF {Number(returnOrder.totalAmount).toLocaleString()}</strong>
+                {t("returnWarning")} <strong className="text-[var(--foreground)]">RWF {Number(returnOrder.totalAmount).toLocaleString()}</strong>
               </p>
               {returnError && <p className="text-xs text-red-600 bg-red-50 px-3 py-2 rounded-lg">{returnError}</p>}
               <div>
                 <label className="text-xs font-semibold text-[var(--muted)] uppercase tracking-wide block mb-2">
-                  Return Reason <span className="text-red-500">*</span>
+                  {t("returnReasonLabel")} <span className="text-red-500">*</span>
                 </label>
                 <textarea
                   value={returnReason}
                   onChange={e => setReturnReason(e.target.value)}
                   rows={3}
-                  placeholder="e.g. Customer changed mind, damaged goods..."
+                  placeholder={t("returnReasonPlaceholder")}
                   className="w-full bg-[var(--background)] border border-[var(--border)] rounded-lg px-3 py-2.5 text-sm text-[var(--foreground)] outline-none focus:border-baraka-primary resize-none placeholder:text-[var(--muted)]"
                 />
               </div>
@@ -706,16 +633,16 @@ export default function OrdersPage() {
                     onChange={e => setReturnCredit(e.target.checked)}
                     className="w-4 h-4 accent-baraka-primary"
                   />
-                  <span className="text-sm text-[var(--foreground)]">Issue credit note to customer</span>
+                  <span className="text-sm text-[var(--foreground)]">{t("issueCreditNote")}</span>
                 </label>
               )}
               <div className="flex gap-3">
                 <button onClick={() => setReturnOrder(null)} className="flex-1 py-2.5 rounded-lg border border-[var(--border)] text-sm text-[var(--muted)] hover:bg-[var(--background)] transition-colors">
-                  Cancel
+                  {tCommon("cancel")}
                 </button>
                 <button onClick={handleReturn} disabled={returning} className="flex-1 py-2.5 rounded-lg bg-orange-500 hover:bg-orange-600 text-white text-sm font-medium transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
                   <RotateCcw size={15} />
-                  {returning ? "Processing..." : "Confirm Return"}
+                  {returning ? t("processing") : t("confirmReturn")}
                 </button>
               </div>
             </div>
@@ -733,7 +660,7 @@ export default function OrdersPage() {
                   <Truck size={18} className="text-emerald-600" />
                 </div>
                 <div>
-                  <h2 className="font-semibold text-[var(--foreground)]">Mark as Delivered</h2>
+                  <h2 className="font-semibold text-[var(--foreground)]">{t("markAsDelivered")}</h2>
                   <p className="text-xs text-[var(--muted)]">{deliverOrder.orderNumber} · {deliverOrder.customerName}</p>
                 </div>
               </div>
@@ -744,23 +671,23 @@ export default function OrdersPage() {
             <div className="p-5 space-y-4">
               <div>
                 <label className="text-xs font-semibold text-[var(--muted)] uppercase tracking-wide block mb-2">
-                  Delivery Notes (optional)
+                  {t("deliveryNotesLabel")}
                 </label>
                 <textarea
                   value={deliveryNotes}
                   onChange={e => setDeliveryNotes(e.target.value)}
                   rows={3}
-                  placeholder="e.g. Delivered to reception, signed by John..."
+                  placeholder={t("deliveryNotesPlaceholder")}
                   className="w-full bg-[var(--background)] border border-[var(--border)] rounded-lg px-3 py-2.5 text-sm text-[var(--foreground)] outline-none focus:border-baraka-primary resize-none placeholder:text-[var(--muted)]"
                 />
               </div>
               <div className="flex gap-3">
                 <button onClick={() => { setDeliverOrder(null); setDeliveryNotes("") }} className="flex-1 py-2.5 rounded-lg border border-[var(--border)] text-sm text-[var(--muted)] hover:bg-[var(--background)] transition-colors">
-                  Cancel
+                  {tCommon("cancel")}
                 </button>
                 <button onClick={handleConfirmDelivery} disabled={delivering} className="flex-1 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
                   <Truck size={15} />
-                  {delivering ? "Updating..." : "Confirm Delivery"}
+                  {delivering ? tCommon("updating") : t("confirmDelivery")}
                 </button>
               </div>
             </div>

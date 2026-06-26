@@ -2,6 +2,8 @@ import { Montserrat } from 'next/font/google';
 import type { Metadata } from "next";
 import "./globals.css";
 import { Providers } from "@/components/providers/Providers";
+import { NextIntlClientProvider } from "next-intl";
+import { getLocale, getMessages } from "next-intl/server";
 
 const montserrat = Montserrat({
   subsets: ['latin'],
@@ -14,20 +16,24 @@ export const metadata: Metadata = {
   description: "Manage your furniture shop inventory, orders, and suppliers. Built for businesses in Rwanda.",
 }
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const locale   = await getLocale()
+  const messages = await getMessages()
+
   return (
-    <html lang="en"
+    <html lang={locale}
       className={`${montserrat.variable} h-full antialiased`}
-       suppressHydrationWarning>
-      
+      suppressHydrationWarning>
       <body>
-        <Providers>
-          {children}
-        </Providers>
+        <NextIntlClientProvider locale={locale} messages={messages}>
+          <Providers>
+            {children}
+          </Providers>
+        </NextIntlClientProvider>
       </body>
     </html>
   );

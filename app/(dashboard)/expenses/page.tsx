@@ -3,18 +3,9 @@
 import { useState, useEffect, useCallback } from "react"
 import { Plus, Receipt, Pencil, Trash2, X, Loader2, ChevronDown } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { useTranslations } from "next-intl"
 
 type ExpenseCategory = "RENT" | "UTILITIES" | "TRANSPORT" | "STAFF_WAGES" | "MARKETING" | "EQUIPMENT" | "OTHER"
-
-const CATEGORY_LABELS: Record<ExpenseCategory, string> = {
-  RENT:        "Rent",
-  UTILITIES:   "Utilities",
-  TRANSPORT:   "Transport",
-  STAFF_WAGES: "Staff Wages",
-  MARKETING:   "Marketing",
-  EQUIPMENT:   "Equipment",
-  OTHER:       "Other",
-}
 
 const CATEGORY_COLORS: Record<ExpenseCategory, string> = {
   RENT:        "bg-purple-100 text-purple-700",
@@ -25,6 +16,8 @@ const CATEGORY_COLORS: Record<ExpenseCategory, string> = {
   EQUIPMENT:   "bg-orange-100 text-orange-700",
   OTHER:       "bg-gray-100 text-gray-700",
 }
+
+const CATEGORY_KEYS = Object.keys(CATEGORY_COLORS) as ExpenseCategory[]
 
 interface Expense {
   id:         string
@@ -54,6 +47,9 @@ function ExpenseModal({
   onSave:   (data: Partial<Expense>) => Promise<void>
   expense:  Expense | null
 }) {
+  const t       = useTranslations("expenses")
+  const tCommon = useTranslations("common")
+
   const [title,    setTitle]    = useState(expense?.title    ?? "")
   const [amount,   setAmount]   = useState(expense ? String(expense.amount) : "")
   const [category, setCategory] = useState<ExpenseCategory>(expense?.category ?? "OTHER")
@@ -72,7 +68,7 @@ function ExpenseModal({
       await onSave({ title, amount: amt, category, date, notes: notes || null })
       onClose()
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Something went wrong")
+      setError(err instanceof Error ? err.message : tCommon("somethingWrong"))
     } finally {
       setLoading(false)
     }
@@ -86,7 +82,7 @@ function ExpenseModal({
       <div className="relative z-10 w-full max-w-lg bg-[var(--card)] rounded-2xl shadow-2xl">
         <div className="flex items-center justify-between p-6 border-b border-[var(--border)]">
           <h2 className="text-lg font-bold text-[var(--foreground)]">
-            {expense ? "Edit Expense" : "New Expense"}
+            {expense ? t("editExpense") : t("newExpense")}
           </h2>
           <button onClick={onClose} className="p-2 rounded-lg hover:bg-[var(--background)] transition-colors">
             <X size={18} className="text-[var(--muted)]" />
@@ -95,40 +91,43 @@ function ExpenseModal({
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           {error && <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg p-3">{error}</p>}
           <div>
-            <label className="block text-sm font-medium text-[var(--foreground)] mb-1.5">Title *</label>
+            <label className="block text-sm font-medium text-[var(--foreground)] mb-1.5">{t("expenseTitle")} *</label>
             <input type="text" value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Office rent - June" className={inputClass} />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-sm font-medium text-[var(--foreground)] mb-1.5">Amount (RWF) *</label>
+              <label className="block text-sm font-medium text-[var(--foreground)] mb-1.5">{t("expenseAmount")} *</label>
               <input type="number" min="0" step="0.01" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0" className={inputClass} />
             </div>
             <div>
-              <label className="block text-sm font-medium text-[var(--foreground)] mb-1.5">Date *</label>
+              <label className="block text-sm font-medium text-[var(--foreground)] mb-1.5">{t("expenseDate")} *</label>
               <input type="date" value={date} onChange={e => setDate(e.target.value)} className={inputClass} />
             </div>
           </div>
           <div>
-            <label className="block text-sm font-medium text-[var(--foreground)] mb-1.5">Category *</label>
+            <label className="block text-sm font-medium text-[var(--foreground)] mb-1.5">{t("expenseCategory")} *</label>
             <div className="relative">
               <select value={category} onChange={e => setCategory(e.target.value as ExpenseCategory)} className={`${inputClass} appearance-none pr-8`}>
-                {Object.entries(CATEGORY_LABELS).map(([k, v]) => (
-                  <option key={k} value={k}>{v}</option>
+                {CATEGORY_KEYS.map(k => (
+                  <option key={k} value={k}>{t(`categories.${k}` as Parameters<typeof t>[0])}</option>
                 ))}
               </select>
               <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--muted)] pointer-events-none" />
             </div>
           </div>
           <div>
-            <label className="block text-sm font-medium text-[var(--foreground)] mb-1.5">Notes</label>
+            <label className="block text-sm font-medium text-[var(--foreground)] mb-1.5">{tCommon("notes")}</label>
             <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Optional notes..." rows={2} className={`${inputClass} resize-none`} />
           </div>
           <div className="flex gap-3 pt-2">
             <Button type="button" onClick={onClose} className="flex-1 py-2.5 bg-[var(--background)] border border-[var(--border)] text-[var(--foreground)] rounded-lg hover:bg-[var(--border)] transition-colors">
-              Cancel
+              {tCommon("cancel")}
             </Button>
             <Button type="submit" disabled={loading} className="flex-1 py-2.5 bg-baraka-primary hover:bg-baraka-dark text-white rounded-lg transition-colors disabled:opacity-50">
-              {loading ? <span className="flex items-center justify-center gap-2"><Loader2 size={16} className="animate-spin" />Saving...</span> : (expense ? "Save Changes" : "Add Expense")}
+              {loading
+                ? <span className="flex items-center justify-center gap-2"><Loader2 size={16} className="animate-spin" />{tCommon("saving")}</span>
+                : (expense ? tCommon("saveChanges") : t("addExpense"))
+              }
             </Button>
           </div>
         </form>
@@ -139,6 +138,9 @@ function ExpenseModal({
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 export default function ExpensesPage() {
+  const t       = useTranslations("expenses")
+  const tCommon = useTranslations("common")
+
   const [expenses,   setExpenses]   = useState<Expense[]>([])
   const [meta,       setMeta]       = useState<Meta>({ total: 0, page: 1, limit: 50, pages: 0 })
   const [isLoading,  setIsLoading]  = useState(true)
@@ -147,7 +149,6 @@ export default function ExpensesPage() {
   const [page,       setPage]       = useState(1)
   const [key,        setKey]        = useState(0)
 
-  // Month filter — default to current month
   const now = new Date()
   const [month, setMonth] = useState(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`)
 
@@ -175,7 +176,7 @@ export default function ExpensesPage() {
     })
     if (!res.ok) {
       const err = await res.json()
-      throw new Error(err.error || "Failed to save expense")
+      throw new Error(err.error || t("failedToLoad"))
     }
     refresh()
   }
@@ -196,22 +197,22 @@ export default function ExpensesPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-[var(--foreground)]">Expenses</h1>
-          <p className="text-sm text-[var(--muted)] mt-1">{meta.total} expenses this month</p>
+          <h1 className="text-2xl font-bold text-[var(--foreground)]">{t("title")}</h1>
+          <p className="text-sm text-[var(--muted)] mt-1">{t("expensesThisMonth", { count: meta.total })}</p>
         </div>
         <Button onClick={() => setModal({ open: true, expense: null })} className="flex items-center gap-2 bg-baraka-primary hover:bg-baraka-dark text-white px-4 py-2.5 rounded-lg transition-colors">
-          <Plus size={18} /> Add Expense
+          <Plus size={18} /> {t("addExpense")}
         </Button>
       </div>
 
       {/* Summary + Month filter */}
       <div className="grid grid-cols-3 gap-4">
         <div className="col-span-2 bg-[var(--card)] rounded-xl p-4 border border-[var(--border)]">
-          <p className="text-xs text-[var(--muted)] mb-1">Total this period</p>
+          <p className="text-xs text-[var(--muted)] mb-1">{t("totalThisPeriod")}</p>
           <p className="text-2xl font-bold text-red-600">{formatRWF(totalAmount)}</p>
         </div>
         <div className="bg-[var(--card)] rounded-xl p-4 border border-[var(--border)]">
-          <label className="block text-xs text-[var(--muted)] mb-2">Filter by month</label>
+          <label className="block text-xs text-[var(--muted)] mb-2">{t("filterByMonth")}</label>
           <input
             type="month"
             value={month}
@@ -230,18 +231,18 @@ export default function ExpensesPage() {
         ) : expenses.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 gap-3">
             <Receipt size={40} className="text-baraka-sage/40" />
-            <p className="text-sm font-medium text-[var(--foreground)]">No expenses for this period</p>
+            <p className="text-sm font-medium text-[var(--foreground)]">{t("noExpensesThisPeriod")}</p>
           </div>
         ) : (
           <>
             <table className="w-full">
               <thead>
                 <tr className="border-b border-[var(--border)] bg-[var(--background)]">
-                  <th className="text-left text-xs font-semibold text-[var(--muted)] px-6 py-3 uppercase tracking-wide">Expense</th>
-                  <th className="text-left text-xs font-semibold text-[var(--muted)] px-4 py-3 uppercase tracking-wide">Category</th>
-                  <th className="text-left text-xs font-semibold text-[var(--muted)] px-4 py-3 uppercase tracking-wide">Date</th>
-                  <th className="text-left text-xs font-semibold text-[var(--muted)] px-4 py-3 uppercase tracking-wide">Amount</th>
-                  <th className="text-right text-xs font-semibold text-[var(--muted)] px-6 py-3 uppercase tracking-wide">Actions</th>
+                  <th className="text-left text-xs font-semibold text-[var(--muted)] px-6 py-3 uppercase tracking-wide">{t("expenseTitle")}</th>
+                  <th className="text-left text-xs font-semibold text-[var(--muted)] px-4 py-3 uppercase tracking-wide">{t("expenseCategory")}</th>
+                  <th className="text-left text-xs font-semibold text-[var(--muted)] px-4 py-3 uppercase tracking-wide">{tCommon("date")}</th>
+                  <th className="text-left text-xs font-semibold text-[var(--muted)] px-4 py-3 uppercase tracking-wide">{tCommon("amount")}</th>
+                  <th className="text-right text-xs font-semibold text-[var(--muted)] px-6 py-3 uppercase tracking-wide">{tCommon("actions")}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[var(--border)]">
@@ -253,7 +254,7 @@ export default function ExpensesPage() {
                     </td>
                     <td className="px-4 py-4">
                       <span className={`text-xs font-medium px-2.5 py-1 rounded-full ${CATEGORY_COLORS[e.category]}`}>
-                        {CATEGORY_LABELS[e.category]}
+                        {t(`categories.${e.category}` as Parameters<typeof t>[0])}
                       </span>
                     </td>
                     <td className="px-4 py-4">
@@ -281,12 +282,12 @@ export default function ExpensesPage() {
             {meta.pages > 1 && (
               <div className="flex items-center justify-between px-6 py-4 border-t border-[var(--border)]">
                 <p className="text-sm text-[var(--muted)]">
-                  Showing {Math.min((meta.page - 1) * meta.limit + 1, meta.total)}–{Math.min(meta.page * meta.limit, meta.total)} of {meta.total}
+                  {tCommon("showingOf", { from: Math.min((meta.page - 1) * meta.limit + 1, meta.total), to: Math.min(meta.page * meta.limit, meta.total), total: meta.total })}
                 </p>
                 <div className="flex items-center gap-2">
-                  <button onClick={() => setPage(p => p - 1)} disabled={meta.page <= 1} className="px-3 py-1.5 text-sm rounded-lg border border-[var(--border)] disabled:opacity-40 transition-colors">Previous</button>
-                  <span className="text-sm text-[var(--muted)] px-1">Page {meta.page} of {meta.pages}</span>
-                  <button onClick={() => setPage(p => p + 1)} disabled={meta.page >= meta.pages} className="px-3 py-1.5 text-sm rounded-lg border border-[var(--border)] disabled:opacity-40 transition-colors">Next</button>
+                  <button onClick={() => setPage(p => p - 1)} disabled={meta.page <= 1} className="px-3 py-1.5 text-sm rounded-lg border border-[var(--border)] disabled:opacity-40 transition-colors">{tCommon("previous")}</button>
+                  <span className="text-sm text-[var(--muted)] px-1">{tCommon("pageOf", { page: meta.page, pages: meta.pages })}</span>
+                  <button onClick={() => setPage(p => p + 1)} disabled={meta.page >= meta.pages} className="px-3 py-1.5 text-sm rounded-lg border border-[var(--border)] disabled:opacity-40 transition-colors">{tCommon("next")}</button>
                 </div>
               </div>
             )}

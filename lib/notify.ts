@@ -7,8 +7,16 @@ export function createNotification(
   title:      string,
   message:    string,
   link?:      string,
+  branchId?:  string | null,
 ) {
   prisma.notification.create({
-    data: { businessId, type, title, message, link: link ?? null },
+    data: {
+      businessId,
+      branchId: branchId ?? null,
+      type,
+      title,
+      message,
+      link: link ?? null,
+    },
   }).catch(() => {})
 }

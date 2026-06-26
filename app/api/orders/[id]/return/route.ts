@@ -47,15 +47,20 @@ export async function POST(
         { status: 400 }
       )
     }
+    if (!order.branchId) {
+      return NextResponse.json({ error: "Order has no branch assigned" }, { status: 400 })
+    }
 
-    const businessId = session.user.businessId
+    const branchId    = order.branchId
+    const businessId  = session.user.businessId
 
     // Restock all items and mark order cancelled in one transaction
     await prisma.$transaction(async (tx) => {
       for (const item of order.items) {
-        await tx.product.update({
-          where: { id: item.productId },
-          data:  { stock: { increment: item.quantity } },
+        await tx.branchInventory.upsert({
+          where:  { branchId_productId: { branchId, productId: item.productId } },
+          update: { stock: { increment: item.quantity } },
+          create: { branchId, productId: item.productId, stock: item.quantity, minStock: 0 },
         })
         await tx.stockMovement.create({
           data: {
@@ -64,6 +69,7 @@ export async function POST(
             reason:    `Return: ${order.orderNumber} — ${reason}`,
             productId: item.productId,
             userId:    session.user.id,
+            branchId,
           },
         })
       }

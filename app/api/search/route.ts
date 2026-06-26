@@ -36,7 +36,7 @@ export async function GET(request: NextRequest) {
             { origin: { contains: q, mode: "insensitive" } },
           ],
         },
-        select: { id: true, name: true, stock: true, price: true, sku: true },
+        select: { id: true, name: true, price: true, sku: true },
         take: 4,
       }),
 

@@ -12,19 +12,22 @@ import ProductModal from "@/components/inventory/ProductModal"
 import DeleteConfirmModal from "@/components/inventory/DeleteConfirmModal"
 import StockAdjustModal from "@/components/inventory/StockAdjustModal"
 import Image from "next/image"
+import { useTranslations } from "next-intl"
 
-// Format number as RWF
 function formatRWF(amount: number): string {
   return `RWF ${amount.toLocaleString()}`
 }
 
-// Stock level indicator
-function StockBadge({ stock, minStock }: { stock: number; minStock: number }) {
+function StockBadge({ stock, minStock, t }: {
+  stock: number
+  minStock: number
+  t: ReturnType<typeof useTranslations<"inventory">>
+}) {
   if (stock === 0) {
     return (
       <span className="flex items-center gap-1.5 text-red-600 font-semibold text-sm">
         <span className="w-2 h-2 rounded-full bg-red-500" />
-        Out of stock
+        {t("outOfStock")}
       </span>
     )
   }
@@ -39,12 +42,15 @@ function StockBadge({ stock, minStock }: { stock: number; minStock: number }) {
   return (
     <span className="flex items-center gap-1.5 text-emerald-600 font-semibold text-sm">
       <span className="w-2 h-2 rounded-full bg-emerald-500" />
-      {stock} in stock
+      {stock} {t("inStock")}
     </span>
   )
 }
 
 export default function InventoryPage() {
+  const t       = useTranslations("inventory")
+  const tCommon = useTranslations("common")
+
   const {
     products,
     meta,
@@ -57,10 +63,8 @@ export default function InventoryPage() {
     deleteProduct,
   } = useProducts()
 
-  // Search and filter state
   const [search,   setSearch]   = useState("")
 
-  // CSV import state
   const fileInputRef   = useRef<HTMLInputElement>(null)
   const [showImport,   setShowImport]   = useState(false)
   const [importFile,   setImportFile]   = useState<File | null>(null)
@@ -78,11 +82,11 @@ export default function InventoryPage() {
     try {
       const res  = await fetch("/api/products/import", { method: "POST", body: fd })
       const json = await res.json()
-      if (!res.ok) { setImportError(json.error || "Import failed"); return }
+      if (!res.ok) { setImportError(json.error || t("importFailed")); return }
       setImportResult(json)
       fetchProducts()
     } catch {
-      setImportError("Failed to upload file")
+      setImportError(t("importFailed"))
     } finally {
       setImporting(false)
     }
@@ -96,19 +100,14 @@ export default function InventoryPage() {
     if (fileInputRef.current) fileInputRef.current.value = ""
   }
 
-  // Modal state
   const [showAddModal,    setShowAddModal]    = useState(false)
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
   const [isEditMode,      setIsEditMode]      = useState(false)
   const [adjustingProduct, setAdjustingProduct] = useState<Product | null>(null)
 
-  // Filter products by search term
-  // useMemo means: only recalculate when products or search changes
-  // not on every single render — better performance
   const filteredProducts = useMemo(() => {
     if (!search) return products
-
     const lower = search.toLowerCase()
     return products.filter(p =>
       p.name.toLowerCase().includes(lower)        ||
@@ -118,37 +117,31 @@ export default function InventoryPage() {
     )
   }, [products, search])
 
-  // Summary numbers
   const totalProducts  = products.length
   const lowStockCount  = products.filter(p => p.stock <= p.minStock && p.stock > 0).length
   const outOfStock     = products.filter(p => p.stock === 0).length
 
-  // Open edit modal
   function handleEdit(product: Product) {
     setSelectedProduct(product)
     setIsEditMode(true)
     setShowAddModal(true)
   }
 
-  // Open delete modal
   function handleDeleteClick(product: Product) {
     setSelectedProduct(product)
     setShowDeleteModal(true)
   }
 
-  // Open add modal
   function handleAddClick() {
     setSelectedProduct(null)
     setIsEditMode(false)
     setShowAddModal(true)
   }
 
-  // Open stock adjustment modal
   function handleAdjust(product: Product) {
     setAdjustingProduct(product)
   }
 
-  // Save — handles both add and edit
   async function handleSave(data: Partial<Product>) {
     if (isEditMode && selectedProduct) {
       await updateProduct(selectedProduct.id, data)
@@ -157,12 +150,14 @@ export default function InventoryPage() {
     }
   }
 
-  // Confirm delete
   async function handleDeleteConfirm() {
     if (selectedProduct) {
       await deleteProduct(selectedProduct.id)
     }
   }
+
+  const from  = Math.min((meta.page - 1) * meta.limit + 1, meta.total)
+  const to    = Math.min(meta.page * meta.limit, meta.total)
 
   return (
     <div className="space-y-6">
@@ -170,11 +165,9 @@ export default function InventoryPage() {
       {/* ── PAGE HEADER ── */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-[var(--foreground)]">
-            Inventory
-          </h1>
+          <h1 className="text-2xl font-bold text-[var(--foreground)]">{t("title")}</h1>
           <p className="text-sm text-[var(--muted)] mt-1">
-            {totalProducts} products total
+            {t("productsTotal", { count: totalProducts })}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -183,19 +176,14 @@ export default function InventoryPage() {
             className="flex items-center gap-2 px-4 py-2.5 rounded-lg border border-[var(--border)] bg-[var(--card)] text-[var(--foreground)] hover:bg-[var(--background)] transition-colors text-sm"
           >
             <Upload size={16} />
-            Import CSV
+            {t("importCsv")}
           </button>
           <Button
             onClick={handleAddClick}
-            className="
-              flex items-center gap-2
-              bg-baraka-primary hover:bg-baraka-dark
-              text-white px-4 py-2.5
-              rounded-lg transition-colors
-            "
+            className="flex items-center gap-2 bg-baraka-primary hover:bg-baraka-dark text-white px-4 py-2.5 rounded-lg transition-colors"
           >
             <Plus size={18} />
-            Add Product
+            {t("addProduct")}
           </Button>
         </div>
       </div>
@@ -209,10 +197,8 @@ export default function InventoryPage() {
               <Package size={18} className="text-blue-600" />
             </div>
             <div>
-              <p className="text-xs text-[var(--muted)]">Total Products</p>
-              <p className="text-xl font-bold text-[var(--foreground)]">
-                {totalProducts}
-              </p>
+              <p className="text-xs text-[var(--muted)]">{t("product")}</p>
+              <p className="text-xl font-bold text-[var(--foreground)]">{totalProducts}</p>
             </div>
           </div>
         </div>
@@ -223,10 +209,8 @@ export default function InventoryPage() {
               <AlertTriangle size={18} className="text-yellow-600" />
             </div>
             <div>
-              <p className="text-xs text-[var(--muted)]">Low Stock</p>
-              <p className="text-xl font-bold text-[var(--foreground)]">
-                {lowStockCount}
-              </p>
+              <p className="text-xs text-[var(--muted)]">{t("lowStock")}</p>
+              <p className="text-xl font-bold text-[var(--foreground)]">{lowStockCount}</p>
             </div>
           </div>
         </div>
@@ -237,10 +221,8 @@ export default function InventoryPage() {
               <AlertTriangle size={18} className="text-red-600" />
             </div>
             <div>
-              <p className="text-xs text-[var(--muted)]">Out of Stock</p>
-              <p className="text-xl font-bold text-[var(--foreground)]">
-                {outOfStock}
-              </p>
+              <p className="text-xs text-[var(--muted)]">{t("outOfStock")}</p>
+              <p className="text-xl font-bold text-[var(--foreground)]">{outOfStock}</p>
             </div>
           </div>
         </div>
@@ -249,129 +231,95 @@ export default function InventoryPage() {
 
       {/* ── SEARCH ── */}
       <div className="flex items-center gap-3">
-        <div className="
-          flex items-center gap-2
-          bg-[var(--card)] rounded-lg
-          px-3 py-2.5 flex-1
-          border border-[var(--border)]
-        ">
+        <div className="flex items-center gap-2 bg-[var(--card)] rounded-lg px-3 py-2.5 flex-1 border border-[var(--border)]">
           <Search size={16} className="text-[var(--muted)]" />
           <input
             type="text"
-            placeholder="Search by name, SKU, origin, category..."
+            placeholder={t("searchPlaceholder")}
             value={search}
             onChange={e => setSearch(e.target.value)}
-            className="
-              bg-transparent text-sm outline-none
-              text-[var(--foreground)] w-full
-              placeholder:text-[var(--muted)]
-            "
+            className="bg-transparent text-sm outline-none text-[var(--foreground)] w-full placeholder:text-[var(--muted)]"
           />
         </div>
         <Button
           onClick={fetchProducts}
-          className="
-            p-2.5 rounded-lg
-            bg-[var(--card)] border border-[var(--border)]
-            hover:bg-[var(--background)]
-            transition-colors
-          "
+          className="p-2.5 rounded-lg bg-[var(--card)] border border-[var(--border)] hover:bg-[var(--background)] transition-colors"
         >
           <RefreshCw size={16} className="text-[var(--muted)]" />
         </Button>
       </div>
 
       {/* ── TABLE ── */}
-      <div className="
-        bg-[var(--card)] rounded-xl
-        border border-[var(--border)]
-        shadow-sm overflow-hidden
-      ">
+      <div className="bg-[var(--card)] rounded-xl border border-[var(--border)] shadow-sm overflow-hidden">
 
-        {/* Loading state */}
         {isLoading && (
           <div className="flex items-center justify-center py-16">
             <div className="flex items-center gap-3 text-[var(--muted)]">
               <RefreshCw size={20} className="animate-spin" />
-              <span className="text-sm">Loading products...</span>
+              <span className="text-sm">{tCommon("loading")}</span>
             </div>
           </div>
         )}
 
-        {/* Error state */}
         {error && !isLoading && (
           <div className="flex flex-col items-center justify-center py-16 gap-3">
             <AlertTriangle size={32} className="text-red-400" />
             <p className="text-sm text-[var(--muted)]">{error}</p>
             <Button onClick={fetchProducts} className="text-sm text-baraka-primary">
-              Try again
+              {tCommon("tryAgain")}
             </Button>
           </div>
         )}
 
-        {/* Empty state */}
         {!isLoading && !error && filteredProducts.length === 0 && (
           <div className="flex flex-col items-center justify-center py-16 gap-3">
             <Package size={40} className="text-baraka-sage/40" />
             <p className="text-sm font-medium text-[var(--foreground)]">
-              {search ? "No products match your search" : "No products yet"}
+              {search ? t("noProductsSearch") : t("noProducts")}
             </p>
             <p className="text-xs text-[var(--muted)]">
-              {search
-                ? "Try a different search term"
-                : "Click 'Add Product' to add your first product"
-              }
+              {search ? t("tryDifferentSearch") : t("clickAddHint")}
             </p>
           </div>
         )}
 
-        {/* Table */}
         {!isLoading && !error && filteredProducts.length > 0 && (
           <div className="overflow-x-auto">
           <table className="w-full min-w-[640px]">
             <thead>
               <tr className="border-b border-[var(--border)] bg-[var(--background)]">
                 <th className="text-left text-xs font-semibold text-[var(--muted)] px-6 py-3 uppercase tracking-wide">
-                  Product
+                  {t("product")}
                 </th>
                 <th className="text-left text-xs font-semibold text-[var(--muted)] px-4 py-3 uppercase tracking-wide">
-                  SKU
+                  {t("sku")}
                 </th>
                 <th className="text-left text-xs font-semibold text-[var(--muted)] px-4 py-3 uppercase tracking-wide">
-                  Origin
+                  {t("origin")}
                 </th>
                 <th className="text-left text-xs font-semibold text-[var(--muted)] px-4 py-3 uppercase tracking-wide">
-                  Stock
+                  {t("stock")}
                 </th>
                 <th className="text-left text-xs font-semibold text-[var(--muted)] px-4 py-3 uppercase tracking-wide">
-                  Price
+                  {t("price")}
                 </th>
                 <th className="text-left text-xs font-semibold text-[var(--muted)] px-4 py-3 uppercase tracking-wide">
-                  Category
+                  {tCommon("category")}
                 </th>
                 <th className="text-right text-xs font-semibold text-[var(--muted)] px-6 py-3 uppercase tracking-wide">
-                  Actions
+                  {tCommon("actions")}
                 </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[var(--border)]">
               {filteredProducts.map((product) => (
-                <tr
-                  key={product.id}
-                  className="hover:bg-[var(--background)] transition-colors"
-                >
-                  {/* Product name + description + thumbnail */}
+                <tr key={product.id} className="hover:bg-[var(--background)] transition-colors">
+
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-3">
                       {product.imageUrl ? (
                         <div className="relative w-10 h-10 rounded-lg overflow-hidden shrink-0 border border-[var(--border)]">
-                          <Image
-                            src={product.imageUrl}
-                            alt={product.name}
-                            fill
-                            className="object-cover"
-                            sizes="40px"
-                          />
+                          <Image src={product.imageUrl} alt={product.name} fill className="object-cover" sizes="40px" />
                         </div>
                       ) : (
                         <div className="w-10 h-10 rounded-lg bg-[var(--background)] border border-[var(--border)] flex items-center justify-center shrink-0">
@@ -387,48 +335,30 @@ export default function InventoryPage() {
                     </div>
                   </td>
 
-                  {/* SKU */}
                   <td className="px-4 py-4">
                     <span className="text-xs font-mono text-[var(--muted)] bg-[var(--background)] px-2 py-1 rounded">
                       {product.sku || "—"}
                     </span>
                   </td>
 
-                  {/* Origin */}
                   <td className="px-4 py-4">
-                    <span className="text-sm text-[var(--muted)]">
-                      {product.origin || "—"}
-                    </span>
+                    <span className="text-sm text-[var(--muted)]">{product.origin || "—"}</span>
                   </td>
 
-                  {/* Stock badge */}
                   <td className="px-4 py-4">
-                    <StockBadge
-                      stock={product.stock}
-                      minStock={product.minStock}
-                    />
+                    <StockBadge stock={product.stock} minStock={product.minStock} t={t} />
                   </td>
 
-                  {/* Price */}
                   <td className="px-4 py-4">
-                    <p className="text-sm font-semibold text-[var(--foreground)]">
-                      {formatRWF(product.price)}
-                    </p>
+                    <p className="text-sm font-semibold text-[var(--foreground)]">{formatRWF(product.price)}</p>
                     {product.costPrice && (
-                      <p className="text-xs text-[var(--muted)]">
-                        Cost: {formatRWF(product.costPrice)}
-                      </p>
+                      <p className="text-xs text-[var(--muted)]">{t("costLabel")} {formatRWF(product.costPrice)}</p>
                     )}
                   </td>
 
-                  {/* Category */}
                   <td className="px-4 py-4">
                     {product.category ? (
-                      <span className="
-                        text-xs px-2 py-1 rounded-full
-                        bg-baraka-sage/20 text-baraka-primary
-                        font-medium
-                      ">
+                      <span className="text-xs px-2 py-1 rounded-full bg-baraka-sage/20 text-baraka-primary font-medium">
                         {product.category.name}
                       </span>
                     ) : (
@@ -436,42 +366,26 @@ export default function InventoryPage() {
                     )}
                   </td>
 
-                  {/* Actions */}
                   <td className="px-6 py-4">
                     <div className="flex items-center justify-end gap-2">
                       <button
                         onClick={() => handleAdjust(product)}
-                        className="
-                          p-2 rounded-lg
-                          hover:bg-baraka-sage/10
-                          text-baraka-sage hover:text-baraka-primary
-                          transition-colors
-                        "
-                        title="Adjust stock"
+                        className="p-2 rounded-lg hover:bg-baraka-sage/10 text-baraka-sage hover:text-baraka-primary transition-colors"
+                        title={t("adjustStock")}
                       >
                         <BarChart2 size={15} />
                       </button>
                       <button
                         onClick={() => handleEdit(product)}
-                        className="
-                          p-2 rounded-lg
-                          hover:bg-baraka-primary/10
-                          text-baraka-sage hover:text-baraka-primary
-                          transition-colors
-                        "
-                        title="Edit product"
+                        className="p-2 rounded-lg hover:bg-baraka-primary/10 text-baraka-sage hover:text-baraka-primary transition-colors"
+                        title={t("editProduct")}
                       >
                         <Pencil size={15} />
                       </button>
                       <button
                         onClick={() => handleDeleteClick(product)}
-                        className="
-                          p-2 rounded-lg
-                          hover:bg-red-50
-                          text-baraka-sage hover:text-red-500
-                          transition-colors
-                        "
-                        title="Delete product"
+                        className="p-2 rounded-lg hover:bg-red-50 text-baraka-sage hover:text-red-500 transition-colors"
+                        title={t("deleteProduct")}
                       >
                         <Trash2 size={15} />
                       </button>
@@ -487,48 +401,27 @@ export default function InventoryPage() {
 
         {/* ── PAGINATION ── */}
         {!isLoading && meta.pages > 1 && (
-          <div className="
-            flex items-center justify-between
-            px-6 py-4
-            border-t border-[var(--border)]
-          ">
+          <div className="flex items-center justify-between px-6 py-4 border-t border-[var(--border)]">
             <p className="text-sm text-[var(--muted)]">
-              Showing{" "}
-              {Math.min((meta.page - 1) * meta.limit + 1, meta.total)}–
-              {Math.min(meta.page * meta.limit, meta.total)}{" "}
-              of {meta.total} products
+              {t("showingOfProducts", { from, to, total: meta.total })}
             </p>
             <div className="flex items-center gap-2">
               <button
                 onClick={() => goToPage(meta.page - 1)}
                 disabled={meta.page <= 1}
-                className="
-                  px-3 py-1.5 text-sm rounded-lg
-                  border border-[var(--border)]
-                  bg-[var(--card)] text-[var(--foreground)]
-                  hover:bg-[var(--background)]
-                  disabled:opacity-40 disabled:cursor-not-allowed
-                  transition-colors
-                "
+                className="px-3 py-1.5 text-sm rounded-lg border border-[var(--border)] bg-[var(--card)] text-[var(--foreground)] hover:bg-[var(--background)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               >
-                Previous
+                {tCommon("previous")}
               </button>
               <span className="text-sm text-[var(--muted)] px-2">
-                Page {meta.page} of {meta.pages}
+                {tCommon("pageOf", { page: meta.page, pages: meta.pages })}
               </span>
               <button
                 onClick={() => goToPage(meta.page + 1)}
                 disabled={meta.page >= meta.pages}
-                className="
-                  px-3 py-1.5 text-sm rounded-lg
-                  border border-[var(--border)]
-                  bg-[var(--card)] text-[var(--foreground)]
-                  hover:bg-[var(--background)]
-                  disabled:opacity-40 disabled:cursor-not-allowed
-                  transition-colors
-                "
+                className="px-3 py-1.5 text-sm rounded-lg border border-[var(--border)] bg-[var(--card)] text-[var(--foreground)] hover:bg-[var(--background)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               >
-                Next
+                {tCommon("next")}
               </button>
             </div>
           </div>
@@ -537,7 +430,6 @@ export default function InventoryPage() {
       </div>
 
       {/* ── MODALS ── */}
-      {/* key resets all modal state when switching add/edit or changing product */}
       {showAddModal && (
         <ProductModal
           key={isEditMode ? (selectedProduct?.id ?? "edit") : "add"}
@@ -572,8 +464,8 @@ export default function InventoryPage() {
                   <Upload size={18} className="text-baraka-primary" />
                 </div>
                 <div>
-                  <h2 className="font-semibold text-[var(--foreground)]">Import Products from CSV</h2>
-                  <p className="text-xs text-[var(--muted)]">Required column: name. Optional: sku, price, costPrice, stock, minStock, unit, category, description</p>
+                  <h2 className="font-semibold text-[var(--foreground)]">{t("importTitle")}</h2>
+                  <p className="text-xs text-[var(--muted)]">{t("csvColumnsHint")}</p>
                 </div>
               </div>
               <button onClick={closeImport} className="p-2 rounded-lg hover:bg-[var(--background)] text-[var(--muted)] transition-colors">
@@ -582,7 +474,6 @@ export default function InventoryPage() {
             </div>
             <div className="p-5 space-y-4">
 
-              {/* File drop zone */}
               {!importResult && (
                 <label className="flex flex-col items-center justify-center gap-3 p-8 border-2 border-dashed border-[var(--border)] rounded-xl cursor-pointer hover:border-baraka-primary hover:bg-baraka-primary/5 transition-colors">
                   <FileText size={32} className="text-baraka-sage" />
@@ -593,8 +484,8 @@ export default function InventoryPage() {
                     </div>
                   ) : (
                     <div className="text-center">
-                      <p className="text-sm font-medium text-[var(--foreground)]">Click to choose a CSV file</p>
-                      <p className="text-xs text-[var(--muted)]">or drag and drop here · max 5 MB</p>
+                      <p className="text-sm font-medium text-[var(--foreground)]">{t("clickChooseCsv")}</p>
+                      <p className="text-xs text-[var(--muted)]">{t("dragDropHint")}</p>
                     </div>
                   )}
                   <input
@@ -607,27 +498,25 @@ export default function InventoryPage() {
                 </label>
               )}
 
-              {/* Error */}
               {importError && (
                 <p className="text-xs text-red-600 bg-red-50 px-3 py-2 rounded-lg">{importError}</p>
               )}
 
-              {/* Success result */}
               {importResult && (
                 <div className="space-y-3">
                   <div className="flex items-center gap-3 p-4 bg-emerald-50 rounded-xl border border-emerald-200">
                     <CheckCircle2 size={20} className="text-emerald-600 shrink-0" />
                     <div>
-                      <p className="text-sm font-semibold text-emerald-800">Import complete</p>
+                      <p className="text-sm font-semibold text-emerald-800">{t("importComplete")}</p>
                       <p className="text-xs text-emerald-700">
-                        {importResult.imported} product{importResult.imported !== 1 ? "s" : ""} imported
+                        {importResult.imported} {importResult.imported !== 1 ? t("product").toLowerCase() + "s" : t("product").toLowerCase()} imported
                         {importResult.skipped > 0 && `, ${importResult.skipped} skipped`}
                       </p>
                     </div>
                   </div>
                   {importResult.skippedItems.length > 0 && (
                     <div className="p-3 bg-yellow-50 rounded-lg border border-yellow-200 max-h-32 overflow-y-auto">
-                      <p className="text-xs font-semibold text-yellow-800 mb-1">Skipped rows:</p>
+                      <p className="text-xs font-semibold text-yellow-800 mb-1">{t("skippedRows")}</p>
                       {importResult.skippedItems.map((item, i) => (
                         <p key={i} className="text-xs text-yellow-700">{item}</p>
                       ))}
@@ -636,10 +525,9 @@ export default function InventoryPage() {
                 </div>
               )}
 
-              {/* Actions */}
               <div className="flex gap-3 pt-1">
                 <button onClick={closeImport} className="flex-1 py-2.5 rounded-lg border border-[var(--border)] text-sm text-[var(--muted)] hover:bg-[var(--background)] transition-colors">
-                  {importResult ? "Close" : "Cancel"}
+                  {importResult ? tCommon("close") : tCommon("cancel")}
                 </button>
                 {!importResult && (
                   <button
@@ -648,7 +536,7 @@ export default function InventoryPage() {
                     className="flex-1 py-2.5 rounded-lg bg-baraka-primary hover:bg-baraka-dark text-white text-sm font-medium transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
                   >
                     <Upload size={15} />
-                    {importing ? "Importing..." : "Import"}
+                    {importing ? tCommon("importing") : tCommon("import")}
                   </button>
                 )}
                 {importResult && (
@@ -656,7 +544,7 @@ export default function InventoryPage() {
                     onClick={() => { setImportResult(null); setImportFile(null); if (fileInputRef.current) fileInputRef.current.value = "" }}
                     className="flex-1 py-2.5 rounded-lg bg-baraka-primary hover:bg-baraka-dark text-white text-sm font-medium transition-colors"
                   >
-                    Import Another
+                    {t("importAnother")}
                   </button>
                 )}
               </div>

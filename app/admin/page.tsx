@@ -1,31 +1,32 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { Building2, Users, ShoppingCart, Package, RefreshCw, Calendar } from "lucide-react"
+import Link from "next/link"
+import { Building2, Users, HeadphonesIcon, RefreshCw, Calendar, Activity } from "lucide-react"
 
 interface Stats {
-  totalBusinesses:     number
-  activeBusinesses:    number
-  suspendedBusinesses: number
-  totalUsers:          number
-  totalOrders:         number
-  totalProducts:       number
+  totalBusinesses:      number
+  activeBusinesses:     number
+  suspendedBusinesses:  number
+  totalUsers:           number
+  activeSupportSessions: number
   recentBusinesses: {
-    id: string; name: string; email: string; createdAt: string
-    _count: { users: number; orders: number; products: number }
+    id: string; name: string; email: string; status: string; plan: string; createdAt: string
+    _count: { users: number; branches: number }
   }[]
   monthlySignups: { month: string; count: string }[]
 }
 
-function StatCard({ icon: Icon, label, value, sub, color }: {
+function StatCard({ icon: Icon, label, value, sub, color, href }: {
   icon: React.ElementType
   label: string
   value: string | number
   sub?: string
   color: string
+  href?: string
 }) {
-  return (
-    <div className="bg-gray-900 rounded-xl p-5 border border-gray-800">
+  const inner = (
+    <div className="bg-gray-900 rounded-xl p-5 border border-gray-800 hover:border-gray-700 transition-colors">
       <div className="flex items-center justify-between mb-3">
         <p className="text-sm text-gray-400">{label}</p>
         <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${color}`}>
@@ -36,6 +37,7 @@ function StatCard({ icon: Icon, label, value, sub, color }: {
       {sub && <p className="text-xs text-gray-500 mt-1">{sub}</p>}
     </div>
   )
+  return href ? <Link href={href}>{inner}</Link> : inner
 }
 
 export default function AdminOverviewPage() {
@@ -72,19 +74,36 @@ export default function AdminOverviewPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-white">Platform Overview</h1>
-          <p className="text-sm text-gray-500 mt-0.5">All tenants · live data</p>
+          <p className="text-sm text-gray-500 mt-0.5">Control room · tenant registry</p>
         </div>
         <button onClick={load} className="flex items-center gap-2 text-sm text-gray-500 hover:text-white transition-colors px-3 py-2 rounded-lg hover:bg-gray-800">
           <RefreshCw size={14} /> Refresh
         </button>
       </div>
 
-      {/* KPI cards */}
+      {/* KPI cards — platform metadata only, no tenant financial data */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard icon={Building2}    label="Total Tenants"  value={stats.totalBusinesses}     sub={`${stats.activeBusinesses} active · ${stats.suspendedBusinesses} suspended`} color="bg-blue-500/20 text-blue-400" />
-        <StatCard icon={Users}        label="Total Users"    value={stats.totalUsers}           sub="Across all tenants"    color="bg-purple-500/20 text-purple-400" />
-        <StatCard icon={ShoppingCart} label="Total Orders"   value={stats.totalOrders}          sub="All time"              color="bg-emerald-500/20 text-emerald-400" />
-        <StatCard icon={Package}      label="Total Products" value={stats.totalProducts}        sub="Across all tenants"    color="bg-yellow-500/20 text-yellow-400" />
+        <StatCard
+          icon={Building2} label="Total Tenants" value={stats.totalBusinesses}
+          sub={`${stats.activeBusinesses} active · ${stats.suspendedBusinesses} suspended`}
+          color="bg-blue-500/20 text-blue-400" href="/admin/businesses"
+        />
+        <StatCard
+          icon={Users} label="Total Staff Users" value={stats.totalUsers}
+          sub="Across all tenants"
+          color="bg-purple-500/20 text-purple-400" href="/admin/users"
+        />
+        <StatCard
+          icon={HeadphonesIcon} label="Active Support Sessions" value={stats.activeSupportSessions}
+          sub={stats.activeSupportSessions > 0 ? "Access in progress" : "No active sessions"}
+          color={stats.activeSupportSessions > 0 ? "bg-amber-500/20 text-amber-400" : "bg-gray-700/40 text-gray-500"}
+          href="/admin/support"
+        />
+        <StatCard
+          icon={Activity} label="Platform Events" value="View logs"
+          sub="All admin actions"
+          color="bg-emerald-500/20 text-emerald-400" href="/admin/platform-logs"
+        />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -108,9 +127,8 @@ export default function AdminOverviewPage() {
                   <div className="flex items-center gap-2 text-xs text-gray-500">
                     <span>{biz._count.users} users</span>
                     <span>·</span>
-                    <span>{biz._count.orders} orders</span>
-                    <span>·</span>
-                    <span>{biz._count.products} products</span>
+                    <span>{biz._count.branches} branches</span>
+                    <span className="px-1.5 py-0.5 rounded-full bg-gray-800 text-gray-400">{biz.plan}</span>
                   </div>
                   <p className="text-xs text-gray-600 mt-0.5">
                     {new Date(biz.createdAt).toLocaleDateString("en-RW", { day: "numeric", month: "short", year: "numeric" })}

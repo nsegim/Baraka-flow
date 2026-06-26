@@ -1,9 +1,11 @@
 "use client"
 
 import { useState, useEffect, useRef, useCallback } from "react"
-import { Plus, Trash2, Tag, Loader2, Pencil, Check, X, Building2, Users, ShieldCheck } from "lucide-react"
+import { Plus, Trash2, Tag, Loader2, Pencil, Check, X, Building2, Users, ShieldCheck, Globe, History, Clock, Ban, CheckCircle, XCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useSession } from "next-auth/react"
+import { useTranslations } from "next-intl"
+import { LOCALES, LOCALE_COOKIE, type Locale } from "@/i18n/config"
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface Category { id: string; name: string }
@@ -19,7 +21,7 @@ interface StaffUser {
   role: "OWNER" | "MANAGER" | "STAFF"; isActive: boolean; createdAt: string
 }
 
-type Tab = "business" | "staff" | "categories"
+type Tab = "business" | "staff" | "categories" | "language" | "access-history"
 
 const ROLE_COLORS = {
   OWNER:   "bg-baraka-primary/10 text-baraka-primary",
@@ -29,14 +31,16 @@ const ROLE_COLORS = {
 
 // ── Business Profile Tab ──────────────────────────────────────────────────────
 function BusinessTab() {
+  const t       = useTranslations("settings")
+  const tCommon = useTranslations("common")
   const { data: session } = useSession()
   const isOwner = session?.user?.role === "OWNER"
 
-  const [business, setBusiness] = useState<Business | null>(null)
+  const [business,  setBusiness]  = useState<Business | null>(null)
   const [isLoading, setIsLoading] = useState(true)
-  const [isSaving, setIsSaving] = useState(false)
-  const [success, setSuccess] = useState("")
-  const [error, setError] = useState("")
+  const [isSaving,  setIsSaving]  = useState(false)
+  const [success,   setSuccess]   = useState("")
+  const [error,     setError]     = useState("")
 
   const [name,    setName]    = useState("")
   const [phone,   setPhone]   = useState("")
@@ -75,7 +79,7 @@ function BusinessTab() {
     const data = await res.json()
     if (!res.ok) { setError(data.error || "Failed to save"); setIsSaving(false); return }
     setBusiness(data)
-    setSuccess("Business profile saved")
+    setSuccess(t("profileSaved"))
     setTimeout(() => setSuccess(""), 3000)
     setIsSaving(false)
   }
@@ -90,24 +94,24 @@ function BusinessTab() {
       {error   && <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg p-3">{error}</p>}
 
       <div>
-        <label className="block text-sm font-medium text-[var(--foreground)] mb-1.5">Business Name</label>
+        <label className="block text-sm font-medium text-[var(--foreground)] mb-1.5">{t("businessName")}</label>
         <input type="text" value={name} onChange={e => setName(e.target.value)} disabled={!isOwner} className={inputClass} />
       </div>
       <div>
-        <label className="block text-sm font-medium text-[var(--foreground)] mb-1.5">Email</label>
+        <label className="block text-sm font-medium text-[var(--foreground)] mb-1.5">{tCommon("email")}</label>
         <input type="email" value={business?.email ?? ""} disabled className={inputClass} />
-        <p className="text-xs text-[var(--muted)] mt-1">Email cannot be changed after registration.</p>
+        <p className="text-xs text-[var(--muted)] mt-1">{t("emailNoChange")}</p>
       </div>
       <div>
-        <label className="block text-sm font-medium text-[var(--foreground)] mb-1.5">Phone</label>
+        <label className="block text-sm font-medium text-[var(--foreground)] mb-1.5">{tCommon("phone")}</label>
         <input type="text" value={phone} onChange={e => setPhone(e.target.value)} disabled={!isOwner} placeholder="+250 788 000 000" className={inputClass} />
       </div>
       <div>
-        <label className="block text-sm font-medium text-[var(--foreground)] mb-1.5">Address</label>
+        <label className="block text-sm font-medium text-[var(--foreground)] mb-1.5">{tCommon("address")}</label>
         <textarea value={address} onChange={e => setAddress(e.target.value)} disabled={!isOwner} rows={2} placeholder="Kigali, Rwanda" className={`${inputClass} resize-none`} />
       </div>
       <div>
-        <label className="block text-sm font-medium text-[var(--foreground)] mb-1.5">VAT Rate (%)</label>
+        <label className="block text-sm font-medium text-[var(--foreground)] mb-1.5">{t("taxRate")}</label>
         <div className="flex items-center gap-2">
           <input
             type="number"
@@ -122,23 +126,24 @@ function BusinessTab() {
           />
           <span className="text-sm text-[var(--muted)]">%</span>
         </div>
-        <p className="text-xs text-[var(--muted)] mt-1">
-          Rwanda standard VAT is 18%. Set to 0 to disable tax on invoices.
-        </p>
+        <p className="text-xs text-[var(--muted)] mt-1">{t("vatHint")}</p>
       </div>
 
       {isOwner && (
         <Button type="submit" disabled={isSaving} className="bg-baraka-primary hover:bg-baraka-dark text-white px-6 py-2.5 rounded-lg transition-colors disabled:opacity-50">
-          {isSaving ? <span className="flex items-center gap-2"><Loader2 size={16} className="animate-spin" />Saving...</span> : "Save Changes"}
+          {isSaving ? <span className="flex items-center gap-2"><Loader2 size={16} className="animate-spin" />{tCommon("saving")}...</span> : t("saveChanges")}
         </Button>
       )}
-      {!isOwner && <p className="text-xs text-[var(--muted)]">Only the account owner can edit business settings.</p>}
+      {!isOwner && <p className="text-xs text-[var(--muted)]">{t("ownerOnlyEdit")}</p>}
     </form>
   )
 }
 
 // ── Staff Tab ─────────────────────────────────────────────────────────────────
 function AddStaffModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+  const t       = useTranslations("settings")
+  const tCommon = useTranslations("common")
+
   const [name,     setName]     = useState("")
   const [email,    setEmail]    = useState("")
   const [password, setPassword] = useState("")
@@ -155,7 +160,7 @@ function AddStaffModal({ onClose, onCreated }: { onClose: () => void; onCreated:
       body:    JSON.stringify({ name, email, password, role }),
     })
     const data = await res.json()
-    if (!res.ok) { setError(data.error || "Failed to create staff"); setLoading(false); return }
+    if (!res.ok) { setError(data.error || t("failedCreateStaff")); setLoading(false); return }
     onCreated()
     onClose()
     setLoading(false)
@@ -168,34 +173,34 @@ function AddStaffModal({ onClose, onCreated }: { onClose: () => void; onCreated:
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
       <div className="relative z-10 w-full max-w-md bg-[var(--card)] rounded-2xl shadow-2xl">
         <div className="flex items-center justify-between p-6 border-b border-[var(--border)]">
-          <h2 className="text-lg font-bold text-[var(--foreground)]">Add Staff Member</h2>
+          <h2 className="text-lg font-bold text-[var(--foreground)]">{t("addStaff")}</h2>
           <button onClick={onClose} className="p-2 rounded-lg hover:bg-[var(--background)] transition-colors"><X size={18} className="text-[var(--muted)]" /></button>
         </div>
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           {error && <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg p-3">{error}</p>}
           <div>
-            <label className="block text-sm font-medium text-[var(--foreground)] mb-1.5">Full Name</label>
+            <label className="block text-sm font-medium text-[var(--foreground)] mb-1.5">{tCommon("name")}</label>
             <input type="text" value={name} onChange={e => setName(e.target.value)} required className={inputClass} />
           </div>
           <div>
-            <label className="block text-sm font-medium text-[var(--foreground)] mb-1.5">Email</label>
+            <label className="block text-sm font-medium text-[var(--foreground)] mb-1.5">{tCommon("email")}</label>
             <input type="email" value={email} onChange={e => setEmail(e.target.value)} required className={inputClass} />
           </div>
           <div>
-            <label className="block text-sm font-medium text-[var(--foreground)] mb-1.5">Password</label>
+            <label className="block text-sm font-medium text-[var(--foreground)] mb-1.5">{tCommon("password") ?? "Password"}</label>
             <input type="password" value={password} onChange={e => setPassword(e.target.value)} required minLength={8} className={inputClass} />
           </div>
           <div>
-            <label className="block text-sm font-medium text-[var(--foreground)] mb-1.5">Role</label>
+            <label className="block text-sm font-medium text-[var(--foreground)] mb-1.5">{tCommon("staff")}</label>
             <select value={role} onChange={e => setRole(e.target.value as "MANAGER" | "STAFF")} className={inputClass}>
-              <option value="STAFF">Staff — read only</option>
-              <option value="MANAGER">Manager — can create and edit</option>
+              <option value="STAFF">{t("staffReadOnly")}</option>
+              <option value="MANAGER">{t("managerCanEdit")}</option>
             </select>
           </div>
           <div className="flex gap-3 pt-2">
-            <Button type="button" onClick={onClose} className="flex-1 py-2.5 bg-[var(--background)] border border-[var(--border)] text-[var(--foreground)] rounded-lg hover:bg-[var(--border)] transition-colors">Cancel</Button>
+            <Button type="button" onClick={onClose} className="flex-1 py-2.5 bg-[var(--background)] border border-[var(--border)] text-[var(--foreground)] rounded-lg hover:bg-[var(--border)] transition-colors">{tCommon("cancel")}</Button>
             <Button type="submit" disabled={loading} className="flex-1 py-2.5 bg-baraka-primary hover:bg-baraka-dark text-white rounded-lg transition-colors disabled:opacity-50">
-              {loading ? <span className="flex items-center justify-center gap-2"><Loader2 size={16} className="animate-spin" />Adding...</span> : "Add Staff"}
+              {loading ? <span className="flex items-center justify-center gap-2"><Loader2 size={16} className="animate-spin" />{tCommon("adding")}...</span> : t("addStaff")}
             </Button>
           </div>
         </form>
@@ -205,6 +210,8 @@ function AddStaffModal({ onClose, onCreated }: { onClose: () => void; onCreated:
 }
 
 function StaffTab() {
+  const t       = useTranslations("settings")
+  const tCommon = useTranslations("common")
   const { data: session, status: sessionStatus } = useSession()
   const isOwner = session?.user?.role === "OWNER"
 
@@ -214,18 +221,16 @@ function StaffTab() {
   const [actionId, setActionId] = useState<string | null>(null)
   const [key,      setKey]      = useState(0)
 
-  // setFetched(false) is in an event handler — not in an effect body
   const refresh = useCallback(() => { setFetched(false); setKey(k => k + 1) }, [])
 
   useEffect(() => {
-    if (!isOwner) return  // no setState — non-owners see JSX guard below
+    if (!isOwner) return
     fetch("/api/users")
       .then(r => r.json())
       .then(data => { setUsers(data); setFetched(true) })
       .catch(() => setFetched(true))
   }, [isOwner, key])
 
-  // Loading: session still resolving, or owner but fetch not yet complete
   const isLoading = sessionStatus === "loading" || (isOwner && !fetched)
 
   async function handleRoleChange(id: string, role: "MANAGER" | "STAFF") {
@@ -268,7 +273,7 @@ function StaffTab() {
     return (
       <div className="flex flex-col items-center justify-center py-16 gap-3 text-center">
         <ShieldCheck size={40} className="text-baraka-sage/40" />
-        <p className="text-sm text-[var(--muted)]">Only the account owner can manage staff.</p>
+        <p className="text-sm text-[var(--muted)]">{t("ownerOnlyStaff")}</p>
       </div>
     )
   }
@@ -279,7 +284,7 @@ function StaffTab() {
     <>
       <div className="flex justify-end mb-4">
         <Button onClick={() => setShowAdd(true)} className="flex items-center gap-2 bg-baraka-primary hover:bg-baraka-dark text-white px-4 py-2 rounded-lg text-sm transition-colors">
-          <Plus size={16} /> Add Staff
+          <Plus size={16} /> {t("addStaff")}
         </Button>
       </div>
 
@@ -295,7 +300,7 @@ function StaffTab() {
                 <p className="text-xs text-[var(--muted)]">{u.email}</p>
               </div>
               <span className={`text-xs font-medium px-2 py-0.5 rounded-full ml-2 ${ROLE_COLORS[u.role]}`}>{u.role}</span>
-              {!u.isActive && <span className="text-xs text-[var(--muted)] bg-[var(--border)] px-2 py-0.5 rounded-full">Deactivated</span>}
+              {!u.isActive && <span className="text-xs text-[var(--muted)] bg-[var(--border)] px-2 py-0.5 rounded-full">{tCommon("inactive")}</span>}
             </div>
             {u.role !== "OWNER" && (
               <div className="flex items-center gap-2">
@@ -305,15 +310,15 @@ function StaffTab() {
                   disabled={actionId === u.id}
                   className="text-xs border border-[var(--border)] rounded-lg px-2 py-1.5 bg-[var(--card)] text-[var(--foreground)] outline-none focus:border-baraka-primary disabled:opacity-50"
                 >
-                  <option value="STAFF">Staff</option>
-                  <option value="MANAGER">Manager</option>
+                  <option value="STAFF">{tCommon("staff")}</option>
+                  <option value="MANAGER">{tCommon("manager")}</option>
                 </select>
                 <button
                   onClick={() => handleToggleActive(u.id, u.isActive)}
                   disabled={actionId === u.id}
                   className="px-2.5 py-1.5 text-xs rounded-lg border border-[var(--border)] hover:bg-[var(--background)] transition-colors disabled:opacity-50"
                 >
-                  {u.isActive ? "Deactivate" : "Activate"}
+                  {u.isActive ? t("deactivate") : t("activate")}
                 </button>
                 <button
                   onClick={() => handleDelete(u.id, u.name)}
@@ -333,8 +338,11 @@ function StaffTab() {
   )
 }
 
-// ── Categories Tab (existing logic, extracted) ────────────────────────────────
+// ── Categories Tab ────────────────────────────────────────────────────────────
 function CategoriesTab() {
+  const t       = useTranslations("settings")
+  const tCommon = useTranslations("common")
+
   const [categories, setCategories] = useState<Category[]>([])
   const [isLoading,  setIsLoading]  = useState(true)
   const [newName,    setNewName]    = useState("")
@@ -358,7 +366,7 @@ function CategoriesTab() {
 
   function showSuccess(msg: string) { setSuccess(msg); setTimeout(() => setSuccess(""), 3000) }
 
-  async function handleAdd(e: React.FormEvent) {
+  async function handleAdd(e: React.SyntheticEvent) {
     e.preventDefault()
     if (!newName.trim()) return
     setIsAdding(true); setError(""); setSuccess("")
@@ -395,9 +403,9 @@ function CategoriesTab() {
       {success && <div className="p-3 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-600 text-sm">✓ {success}</div>}
 
       <form onSubmit={handleAdd} className="flex gap-2">
-        <input type="text" value={newName} onChange={e => setNewName(e.target.value)} placeholder="e.g. Bedroom, Office Furniture..." className={inputClass} />
+        <input type="text" value={newName} onChange={e => setNewName(e.target.value)} placeholder={t("categoryPlaceholder")} className={inputClass} />
         <Button type="submit" disabled={!newName.trim() || isAdding} className="flex items-center gap-2 bg-baraka-primary hover:bg-baraka-dark text-white px-4 py-2.5 rounded-lg transition-colors disabled:opacity-50 whitespace-nowrap">
-          {isAdding ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />} Add
+          {isAdding ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />} {tCommon("add")}
         </Button>
       </form>
 
@@ -406,7 +414,7 @@ function CategoriesTab() {
       ) : categories.length === 0 ? (
         <div className="text-center py-8">
           <Tag size={32} className="text-baraka-sage/30 mx-auto mb-2" />
-          <p className="text-sm text-[var(--muted)]">No categories yet</p>
+          <p className="text-sm text-[var(--muted)]">{t("noCategories")}</p>
         </div>
       ) : (
         <div className="space-y-2">
@@ -447,21 +455,265 @@ function CategoriesTab() {
   )
 }
 
+// ── Language Tab ──────────────────────────────────────────────────────────────
+function LanguageTab() {
+  const t       = useTranslations("settings")
+  const tCommon = useTranslations("common")
+  const { data: session } = useSession()
+  const isOwner = session?.user?.role === "OWNER"
+
+  const [personal,   setPersonal]   = useState<Locale | "">(() => {
+    if (typeof document === "undefined") return ""
+    const cookie = document.cookie.split("; ").find(c => c.startsWith("bf-locale="))
+    return cookie ? (cookie.split("=")[1] as Locale) : ""
+  })
+  const [business,   setBusiness]   = useState<Locale>("en")
+  const [saving,     setSaving]     = useState(false)
+  const [savingBiz,  setSavingBiz]  = useState(false)
+  const [success,    setSuccess]    = useState("")
+
+  useEffect(() => {
+    if (!isOwner) return
+    fetch("/api/business").then(r => r.json()).then(d => {
+      if (d.language) setBusiness(d.language as Locale)
+    })
+  }, [isOwner])
+
+  async function savePersonal(lang: Locale | "") {
+    setSaving(true)
+    setSuccess("")
+    try {
+      await fetch("/api/user/language", {
+        method:  "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ language: lang || null }),
+      })
+      const expires = lang
+        ? `; expires=${new Date(Date.now() + 365 * 86400000).toUTCString()}`
+        : "; expires=Thu, 01 Jan 1970 00:00:00 UTC"
+      document.cookie = `${LOCALE_COOKIE}=${lang}; path=/${expires}`
+      setPersonal(lang)
+      setSuccess(t("languageSaved"))
+      setTimeout(() => { setSuccess(""); window.location.reload() }, 800)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function saveBusinessDefault(lang: Locale) {
+    setSavingBiz(true)
+    try {
+      await fetch("/api/user/language", {
+        method:  "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ language: lang, updateBusiness: true }),
+      })
+      setBusiness(lang)
+      setSuccess(t("languageSaved"))
+      setTimeout(() => setSuccess(""), 2500)
+    } finally {
+      setSavingBiz(false)
+    }
+  }
+
+  const LOCALE_NAMES = t.raw("languages") as Record<string, string>
+
+  return (
+    <div className="space-y-6 max-w-lg">
+      {success && <p className="text-sm text-emerald-600 bg-emerald-50 border border-emerald-200 rounded-lg p-3">✓ {success}</p>}
+
+      {/* Personal preference */}
+      <div className="space-y-3">
+        <div>
+          <h3 className="text-sm font-semibold text-[var(--foreground)]">{t("myLanguage")}</h3>
+          <p className="text-xs text-[var(--muted)] mt-0.5">{t("myLanguageSubtitle")}</p>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            onClick={() => savePersonal("")}
+            disabled={saving}
+            className={`p-3 rounded-xl border text-left transition-colors text-sm ${
+              personal === ""
+                ? "border-baraka-primary bg-baraka-primary/10 text-baraka-primary"
+                : "border-[var(--border)] bg-[var(--card)] text-[var(--foreground)] hover:border-baraka-sage"
+            }`}
+          >
+            {t("useBusinessDefault")}
+          </button>
+          {LOCALES.map(loc => (
+            <button
+              key={loc}
+              onClick={() => savePersonal(loc)}
+              disabled={saving}
+              className={`p-3 rounded-xl border text-left transition-colors text-sm font-medium ${
+                personal === loc
+                  ? "border-baraka-primary bg-baraka-primary/10 text-baraka-primary"
+                  : "border-[var(--border)] bg-[var(--card)] text-[var(--foreground)] hover:border-baraka-sage"
+              }`}
+            >
+              <span className="flex items-center gap-2">
+                <Globe size={14} />
+                {LOCALE_NAMES[loc] ?? loc}
+              </span>
+            </button>
+          ))}
+        </div>
+        {saving && <p className="text-xs text-[var(--muted)]">{tCommon("saving")}...</p>}
+      </div>
+
+      {/* Business default (OWNER only) */}
+      {isOwner && (
+        <div className="space-y-3 pt-4 border-t border-[var(--border)]">
+          <div>
+            <h3 className="text-sm font-semibold text-[var(--foreground)]">{t("businessDefaultLanguage")}</h3>
+            <p className="text-xs text-[var(--muted)] mt-0.5">{t("businessDefaultLanguageHint")}</p>
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            {LOCALES.map(loc => (
+              <button
+                key={loc}
+                onClick={() => saveBusinessDefault(loc)}
+                disabled={savingBiz}
+                className={`p-3 rounded-xl border text-left transition-colors text-sm font-medium ${
+                  business === loc
+                    ? "border-baraka-primary bg-baraka-primary/10 text-baraka-primary"
+                    : "border-[var(--border)] bg-[var(--card)] text-[var(--foreground)] hover:border-baraka-sage"
+                }`}
+              >
+                <span className="flex items-center gap-2">
+                  <Globe size={14} />
+                  {LOCALE_NAMES[loc] ?? loc}
+                </span>
+              </button>
+            ))}
+          </div>
+          {savingBiz && <p className="text-xs text-[var(--muted)]">{tCommon("saving")}...</p>}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Access History Tab ────────────────────────────────────────────────────────
+interface AccessSession {
+  id: string
+  status: "ACTIVE" | "EXPIRED" | "ENDED" | "REVOKED"
+  accessScope: "READ_ONLY" | "FULL_IMPERSONATION"
+  justification: string
+  createdAt: string
+  expiresAt: string
+  endedAt: string | null
+  platformUser: { name: string }
+  _count: { actions: number }
+}
+
+const ACCESS_STATUS_STYLE: Record<string, string> = {
+  ACTIVE:  "bg-amber-100 text-amber-700",
+  EXPIRED: "bg-gray-100 text-gray-500",
+  ENDED:   "bg-green-100 text-green-700",
+  REVOKED: "bg-red-100 text-red-600",
+}
+
+const ACCESS_STATUS_ICON: Record<string, React.ReactNode> = {
+  ACTIVE:  <Clock       size={11} />,
+  EXPIRED: <XCircle     size={11} />,
+  ENDED:   <CheckCircle size={11} />,
+  REVOKED: <Ban         size={11} />,
+}
+
+function AccessHistoryTab() {
+  const t = useTranslations("settings")
+  const { data: session } = useSession()
+  const isOwner = session?.user?.role === "OWNER"
+
+  const [sessions, setSessions] = useState<AccessSession[]>([])
+  const [loading,  setLoading]  = useState(true)
+
+  useEffect(() => {
+    if (!isOwner) return
+    fetch("/api/settings/access-history")
+      .then(r => r.json())
+      .then(data => { setSessions(Array.isArray(data) ? data : []); setLoading(false) })
+      .catch(() => setLoading(false))
+  }, [isOwner])
+
+  if (!isOwner) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 gap-3 text-center">
+        <ShieldCheck size={40} className="text-baraka-sage/40" />
+        <p className="text-sm text-[var(--muted)]">{t("ownerOnlyStaff")}</p>
+      </div>
+    )
+  }
+
+  if (loading) return <div className="flex justify-center py-16"><Loader2 size={20} className="animate-spin text-baraka-sage" /></div>
+
+  return (
+    <div className="space-y-4">
+      <p className="text-xs text-[var(--muted)]">{t("accessHistorySubtitle")}</p>
+
+      {sessions.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-12 gap-3 text-center">
+          <ShieldCheck size={36} className="text-emerald-500/50" />
+          <p className="text-sm text-[var(--muted)]">{t("noAccessHistory")}</p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {sessions.map(s => (
+            <div key={s.id} className="rounded-xl border border-[var(--border)] bg-[var(--background)] p-4 space-y-2">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium ${ACCESS_STATUS_STYLE[s.status]}`}>
+                    {ACCESS_STATUS_ICON[s.status]} {t(`session${s.status.charAt(0) + s.status.slice(1).toLowerCase()}` as Parameters<typeof t>[0])}
+                  </span>
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-[var(--border)] text-[var(--muted)]">
+                    {s.accessScope === "READ_ONLY" ? t("readOnly") : t("fullAccess")}
+                  </span>
+                </div>
+                <span className="text-xs text-[var(--muted)] shrink-0">
+                  {new Date(s.createdAt).toLocaleDateString()}
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div>
+                  <span className="text-[var(--muted)]">{t("sessionAgent")}: </span>
+                  <span className="font-medium text-[var(--foreground)]">{s.platformUser.name}</span>
+                </div>
+                <div>
+                  <span className="text-[var(--muted)]">{t("sessionActions")}: </span>
+                  <span className="font-medium text-[var(--foreground)]">{s._count.actions}</span>
+                </div>
+              </div>
+              <div className="text-xs">
+                <span className="text-[var(--muted)]">{t("sessionJustification")}: </span>
+                <span className="text-[var(--foreground)]">{s.justification}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 export default function SettingsPage() {
+  const t = useTranslations("settings")
   const [activeTab, setActiveTab] = useState<Tab>("business")
 
   const tabs: { id: Tab; label: string; icon: React.ElementType }[] = [
-    { id: "business",   label: "Business Profile", icon: Building2 },
-    { id: "staff",      label: "Staff & Roles",    icon: Users     },
-    { id: "categories", label: "Categories",       icon: Tag       },
+    { id: "business",        label: t("businessProfile"),   icon: Building2 },
+    { id: "staff",           label: t("staffAndRoles"),     icon: Users     },
+    { id: "categories",      label: t("categories"),        icon: Tag       },
+    { id: "language",        label: t("languageTab"),       icon: Globe     },
+    { id: "access-history",  label: t("accessHistoryTab"),  icon: History   },
   ]
 
   return (
     <div className="space-y-6 max-w-2xl">
       <div>
-        <h1 className="text-2xl font-bold text-[var(--foreground)]">Settings</h1>
-        <p className="text-sm text-[var(--muted)] mt-1">Manage your business configuration</p>
+        <h1 className="text-2xl font-bold text-[var(--foreground)]">{t("title")}</h1>
+        <p className="text-sm text-[var(--muted)] mt-1">{t("subtitle")}</p>
       </div>
 
       {/* Tab bar */}
@@ -472,7 +724,7 @@ export default function SettingsPage() {
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-2 flex-1 justify-center px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
+              className={`flex items-center gap-2 flex-1 justify-center px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
                 activeTab === tab.id
                   ? "bg-[var(--card)] text-[var(--foreground)] shadow-sm border border-[var(--border)]"
                   : "text-[var(--muted)] hover:text-[var(--foreground)]"
@@ -487,9 +739,11 @@ export default function SettingsPage() {
 
       {/* Tab content */}
       <div className="bg-[var(--card)] rounded-xl border border-[var(--border)] p-6">
-        {activeTab === "business"   && <BusinessTab />}
-        {activeTab === "staff"      && <StaffTab />}
-        {activeTab === "categories" && <CategoriesTab />}
+        {activeTab === "business"        && <BusinessTab />}
+        {activeTab === "staff"           && <StaffTab />}
+        {activeTab === "categories"      && <CategoriesTab />}
+        {activeTab === "language"        && <LanguageTab />}
+        {activeTab === "access-history"  && <AccessHistoryTab />}
       </div>
     </div>
   )

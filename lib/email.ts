@@ -81,6 +81,56 @@ export async function sendOrderConfirmation(params: OrderConfirmationParams) {
   })
 }
 
+// ── PASSWORD RESET ────────────────────────────────────────────────────────────
+
+interface PasswordResetParams {
+  to:       string
+  name:     string
+  resetUrl: string
+}
+
+export async function sendPasswordResetEmail(params: PasswordResetParams) {
+  const { to, name, resetUrl } = params
+
+  const html = `
+    <div style="font-family:sans-serif;max-width:600px;margin:0 auto;color:#1a1a1a">
+      <div style="background:#0E3A43;padding:24px 32px;border-radius:12px 12px 0 0">
+        <h1 style="color:#fff;margin:0;font-size:22px">BarakaFlow</h1>
+        <p style="color:#68abaf;margin:4px 0 0;font-size:13px">Inventory Management</p>
+      </div>
+      <div style="background:#fff;padding:32px;border:1px solid #eee;border-top:none;border-radius:0 0 12px 12px">
+        <h2 style="margin:0 0 8px;font-size:18px">Reset Your Password</h2>
+        <p style="color:#666;margin:0 0 24px">Hi ${name}, we received a request to reset your BarakaFlow password.</p>
+
+        <div style="text-align:center;margin:32px 0">
+          <a href="${resetUrl}"
+             style="display:inline-block;background:#2A9D8F;color:#fff;text-decoration:none;
+                    padding:14px 32px;border-radius:8px;font-weight:600;font-size:15px">
+            Reset Password
+          </a>
+        </div>
+
+        <p style="color:#888;font-size:13px">
+          This link expires in <strong>1 hour</strong>.
+          If you didn't request a password reset, you can safely ignore this email.
+        </p>
+        <p style="color:#bbb;font-size:12px;margin-top:24px;word-break:break-all">
+          Or copy this link: ${resetUrl}
+        </p>
+      </div>
+    </div>
+  `
+
+  const resend = getResend()
+  if (!resend) return
+  return resend.emails.send({
+    from:    FROM,
+    to:      [to],
+    subject: "Reset your BarakaFlow password",
+    html,
+  })
+}
+
 // ── LOW STOCK ALERT ───────────────────────────────────────────────────────────
 
 interface LowStockAlertParams {

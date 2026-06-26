@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { UpdateUserRoleSchema } from "@/lib/validators"
+import { createAuditLog } from "@/lib/audit"
+import { getIp } from "@/lib/rate-limit"
 
 // PATCH /api/users/[id] — change role or deactivate (OWNER only)
 export async function PATCH(
@@ -36,6 +38,19 @@ export async function PATCH(
         data:   { isActive: Boolean(body.isActive) },
         select: { id: true, name: true, email: true, role: true, isActive: true, createdAt: true },
       })
+
+      if (!Boolean(body.isActive)) {
+        createAuditLog({
+          businessId: session.user.businessId,
+          userId:     session.user.id,
+          action:     "USER_DEACTIVATED",
+          entityType: "User",
+          entityId:   id,
+          metadata:   { name: target.name, email: target.email },
+          ipAddress:  getIp(request),
+        })
+      }
+
       return NextResponse.json(updated)
     }
 
@@ -59,6 +74,16 @@ export async function PATCH(
       select: { id: true, name: true, email: true, role: true, isActive: true, createdAt: true },
     })
 
+    createAuditLog({
+      businessId: session.user.businessId,
+      userId:     session.user.id,
+      action:     "USER_ROLE_CHANGED",
+      entityType: "User",
+      entityId:   id,
+      metadata:   { name: target.name, from: target.role, to: parsed.data.role },
+      ipAddress:  getIp(request),
+    })
+
     return NextResponse.json(updated)
 
   } catch (error) {
@@ -69,7 +94,7 @@ export async function PATCH(
 
 // DELETE /api/users/[id] — remove staff member (OWNER only)
 export async function DELETE(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
@@ -96,6 +121,16 @@ export async function DELETE(
     }
 
     await prisma.user.delete({ where: { id } })
+
+    createAuditLog({
+      businessId: session.user.businessId,
+      userId:     session.user.id,
+      action:     "USER_DELETED",
+      entityType: "User",
+      entityId:   id,
+      metadata:   { name: target.name, email: target.email, role: target.role },
+      ipAddress:  getIp(request),
+    })
 
     return NextResponse.json({ message: "Staff member removed" })
 

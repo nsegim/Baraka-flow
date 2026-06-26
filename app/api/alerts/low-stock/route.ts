@@ -15,20 +15,24 @@ export async function POST(_request: NextRequest) {
 
     const businessId = session.user.businessId
 
+    type LowStockRow = { name: string; sku: string; stock: number; minStock: number }
+
     const [business, products] = await Promise.all([
       prisma.business.findUnique({
         where:  { id: businessId },
         select: { name: true, email: true },
       }),
-      prisma.product.findMany({
-        where: { businessId, stock: { lte: prisma.product.fields.minStock } },
-        select: { name: true, sku: true, stock: true, minStock: true },
-        orderBy: { stock: "asc" },
-      }).catch(() =>
-        // Fallback: manual comparison if lte on field reference isn't supported
-        prisma.product.findMany({ where: { businessId }, select: { name: true, sku: true, stock: true, minStock: true } })
-          .then(all => all.filter(p => p.stock <= p.minStock))
-      ),
+      prisma.$queryRaw<LowStockRow[]>`
+        SELECT p.name, p.sku, bi.stock::int AS stock, bi."minStock"::int AS "minStock"
+        FROM "BranchInventory" bi
+        JOIN "Product" p ON p.id = bi."productId"
+        JOIN "Branch"  b ON b.id = bi."branchId"
+        WHERE p."businessId" = ${businessId}
+          AND b."isActive"   = true
+          AND bi.stock       <= bi."minStock"
+        ORDER BY bi.stock ASC
+        LIMIT 50
+      `.catch(() => [] as LowStockRow[]),
     ])
 
     if (!business) return NextResponse.json({ error: "Business not found" }, { status: 404 })

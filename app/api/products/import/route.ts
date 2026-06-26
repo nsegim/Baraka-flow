@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
-import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
+import { requireBranchContext, isBranchContext, getWriteBranchId } from "@/lib/branch-auth"
 
 interface CsvRow {
   name:        string
@@ -29,7 +29,6 @@ function parseCSV(text: string): CsvRow[] {
   const rows: CsvRow[] = []
 
   for (let i = 1; i < lines.length; i++) {
-    // Handle quoted fields with commas inside
     const values: string[] = []
     let current = ""
     let inQuote = false
@@ -63,39 +62,47 @@ function parseCSV(text: string): CsvRow[] {
 }
 
 // POST /api/products/import — OWNER and MANAGER only
-// Body: FormData with a "file" field (CSV)
 export async function POST(request: NextRequest) {
   try {
-    const session = await auth()
-    if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    if (!["OWNER", "MANAGER"].includes(session.user.role)) {
+    const ctx = await requireBranchContext(request, { requireBranch: true })
+    if (!isBranchContext(ctx)) return ctx
+    if (!["OWNER", "MANAGER"].includes(ctx.session.user.role)) {
       return NextResponse.json({ error: "Permission denied" }, { status: 403 })
+    }
+
+    const branchId = getWriteBranchId(ctx, new URL(request.url).searchParams.get("branchId"))
+    if (!branchId) {
+      return NextResponse.json({ error: "Select a branch before importing products" }, { status: 400 })
     }
 
     const formData = await request.formData()
     const file = formData.get("file") as File | null
     if (!file) return NextResponse.json({ error: "No file provided" }, { status: 400 })
-
     if (!file.name.toLowerCase().endsWith(".csv")) {
       return NextResponse.json({ error: "Only CSV files are supported" }, { status: 400 })
     }
-
     if (file.size > 5 * 1024 * 1024) {
       return NextResponse.json({ error: "File too large (max 5 MB)" }, { status: 400 })
     }
 
     const text = await file.text()
     const rows = parseCSV(text)
-
     if (rows.length === 0) {
-      return NextResponse.json({ error: "No valid rows found. Make sure the file has a header row with at least a 'name' column." }, { status: 400 })
+      return NextResponse.json({
+        error: "No valid rows found. Make sure the file has a header row with at least a 'name' column.",
+      }, { status: 400 })
     }
 
-    const businessId = session.user.businessId
+    const businessId = ctx.session.user.businessId
 
-    // Pre-load existing categories to avoid duplicates
+    // Fetch all active branches to seed BranchInventory for each
+    const allBranches = await prisma.branch.findMany({
+      where:  { businessId, isActive: true },
+      select: { id: true },
+    })
+
     const existingCategories = await prisma.category.findMany({
-      where: { businessId },
+      where:  { businessId },
       select: { id: true, name: true },
     })
     const categoryMap = new Map(existingCategories.map(c => [c.name.toLowerCase(), c.id]))
@@ -108,7 +115,6 @@ export async function POST(request: NextRequest) {
         const price = parseNumber(row.price)
         if (price === null || price < 0) { skipped.push(`${row.name} (invalid price)`); continue }
 
-        // Resolve or create category
         let categoryId: string | undefined
         if (row.category?.trim()) {
           const key = row.category.trim().toLowerCase()
@@ -123,21 +129,50 @@ export async function POST(request: NextRequest) {
           }
         }
 
-        await prisma.product.create({
-          data: {
-            name:        row.name,
-            sku:         row.sku?.trim() || null,
-            price,
-            costPrice:   parseNumber(row.costPrice),
-            stock:       Math.max(0, Math.floor(parseNumber(row.stock) ?? 0)),
-            minStock:    Math.max(0, Math.floor(parseNumber(row.minStock) ?? 5)),
-            unit:        row.unit?.trim() || "piece",
-            description: row.description?.trim() || null,
-            origin:      row.origin?.trim() || null,
-            categoryId:  categoryId ?? null,
-            businessId,
-          },
+        const initialStock   = Math.max(0, Math.floor(parseNumber(row.stock)    ?? 0))
+        const initialMinStock = Math.max(0, Math.floor(parseNumber(row.minStock) ?? 5))
+
+        await prisma.$transaction(async (tx) => {
+          const product = await tx.product.create({
+            data: {
+              name:        row.name,
+              sku:         row.sku?.trim() || null,
+              price,
+              costPrice:   parseNumber(row.costPrice),
+              unit:        row.unit?.trim() || "piece",
+              description: row.description?.trim() || null,
+              origin:      row.origin?.trim() || null,
+              categoryId:  categoryId ?? null,
+              businessId,
+            },
+          })
+
+          // Seed BranchInventory for all branches (stock only on the selected import branch)
+          await tx.branchInventory.createMany({
+            data: allBranches.map(b => ({
+              branchId:  b.id,
+              productId: product.id,
+              stock:     b.id === branchId ? initialStock : 0,
+              minStock:  b.id === branchId ? initialMinStock : 5,
+            })),
+            skipDuplicates: true,
+          })
+
+          // Log initial import movement
+          if (initialStock > 0) {
+            await tx.stockMovement.create({
+              data: {
+                type:      "IMPORT",
+                quantity:  initialStock,
+                reason:    "CSV import",
+                productId: product.id,
+                branchId,
+                userId:    ctx.session.user.id,
+              },
+            })
+          }
         })
+
         imported.push(row.name)
       } catch {
         skipped.push(`${row.name} (error)`)
@@ -145,11 +180,10 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json({
-      imported: imported.length,
-      skipped:  skipped.length,
+      imported:     imported.length,
+      skipped:      skipped.length,
       skippedItems: skipped,
     })
-
   } catch (error) {
     console.error(error)
     return NextResponse.json({ error: "Failed to process import" }, { status: 500 })

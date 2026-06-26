@@ -4,6 +4,8 @@ import { prisma } from "@/lib/prisma"
 import { CreatePaymentSchema } from "@/lib/validators"
 import { serialize } from "@/lib/serialize"
 import { createNotification } from "@/lib/notify"
+import { createAuditLog } from "@/lib/audit"
+import { getIp } from "@/lib/rate-limit"
 
 // POST /api/payments — record a payment against an order
 export async function POST(request: NextRequest) {
@@ -40,8 +42,8 @@ export async function POST(request: NextRequest) {
     if (newAmountPaid >= total) paymentStatus = "PAID"
     else if (newAmountPaid > 0) paymentStatus = "PARTIAL"
 
-    const [payment] = await prisma.$transaction([
-      prisma.payment.create({
+    const payment = await prisma.$transaction(async (tx) => {
+      const newPayment = await tx.payment.create({
         data: {
           orderId,
           amount,
@@ -49,15 +51,20 @@ export async function POST(request: NextRequest) {
           reference: reference ?? null,
           notes:     notes     ?? null,
         },
-      }),
-      prisma.order.update({
+      })
+      await tx.order.update({
         where: { id: orderId },
-        data: {
-          amountPaid:    newAmountPaid,
-          paymentStatus,
-        },
-      }),
-    ])
+        data:  { amountPaid: newAmountPaid, paymentStatus },
+      })
+      // AR: reduce customer.outstandingBalance by payment amount (delivered orders with a customer only)
+      if (order.customerId && order.status === "DELIVERED") {
+        await tx.customer.update({
+          where: { id: order.customerId },
+          data:  { outstandingBalance: { decrement: amount } },
+        })
+      }
+      return newPayment
+    })
 
     createNotification(
       session.user.businessId,
@@ -66,6 +73,16 @@ export async function POST(request: NextRequest) {
       `RWF ${amount.toLocaleString()} via ${method.replace("_", " ")} · Status: ${paymentStatus}`,
       "/orders",
     )
+
+    createAuditLog({
+      businessId: session.user.businessId,
+      userId:     session.user.id,
+      action:     "PAYMENT_RECORDED",
+      entityType: "Payment",
+      entityId:   payment.id,
+      metadata:   { orderNumber: order.orderNumber, amount, method, paymentStatus },
+      ipAddress:  getIp(request),
+    })
 
     return NextResponse.json(serialize(payment), { status: 201 })
 

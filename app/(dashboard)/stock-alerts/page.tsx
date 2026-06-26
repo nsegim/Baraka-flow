@@ -6,6 +6,7 @@ import {
   Package, X, Plus, ChevronDown, CheckCircle,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { useTranslations } from "next-intl"
 
 interface AlertItem {
   id:              string
@@ -28,10 +29,14 @@ function QuickReorderModal({
   onClose,
   onCreated,
 }: {
-  product:    AlertItem
-  onClose:    () => void
-  onCreated:  () => void
+  product:   AlertItem
+  onClose:   () => void
+  onCreated: () => void
 }) {
+  const t       = useTranslations("stockAlerts")
+  const tCommon = useTranslations("common")
+  const tPO     = useTranslations("purchaseOrders")
+
   const defaultQty = Math.max(product.minStock - product.stock, product.minStock)
 
   const [suppliers,    setSuppliers]    = useState<Supplier[]>([])
@@ -54,34 +59,30 @@ function QuickReorderModal({
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!supplierId)          { setError("Select a supplier"); return }
-    if (!quantity || Number(quantity) < 1) { setError("Enter a valid quantity"); return }
+    if (!supplierId)                       { setError(tCommon("required")); return }
+    if (!quantity || Number(quantity) < 1) { setError(tCommon("required")); return }
 
     setLoading(true)
     setError("")
     try {
       const res = await fetch("/api/purchase-orders", {
-        method: "POST",
+        method:  "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+        body:    JSON.stringify({
           supplierId,
           expectedDate: expectedDate || null,
-          notes: notes || `Reorder for low stock: ${product.name}`,
-          items: [{
-            productId: product.id,
-            quantity:  Number(quantity),
-            unitCost:  Number(unitCost) || 0,
-          }],
+          notes: notes || `Reorder: ${product.name}`,
+          items: [{ productId: product.id, quantity: Number(quantity), unitCost: Number(unitCost) || 0 }],
         }),
       })
       if (!res.ok) {
         const err = await res.json()
-        throw new Error(err.error || "Failed to create purchase order")
+        throw new Error(err.error || tCommon("somethingWrong"))
       }
       setSuccess(true)
       setTimeout(() => { onCreated(); onClose() }, 1200)
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Something went wrong")
+      setError(err instanceof Error ? err.message : tCommon("somethingWrong"))
     } finally {
       setLoading(false)
     }
@@ -94,8 +95,8 @@ function QuickReorderModal({
 
         <div className="flex items-center justify-between p-6 border-b border-[var(--border)]">
           <div>
-            <h2 className="text-lg font-bold text-[var(--foreground)]">Quick Reorder</h2>
-            <p className="text-sm text-[var(--muted)] mt-0.5">Creates a draft Purchase Order</p>
+            <h2 className="text-lg font-bold text-[var(--foreground)]">{t("quickReorder")}</h2>
+            <p className="text-sm text-[var(--muted)] mt-0.5">{t("createsDraftPO")}</p>
           </div>
           <button onClick={onClose} className="p-2 rounded-lg hover:bg-[var(--background)] transition-colors">
             <X size={18} className="text-[var(--muted)]" />
@@ -105,8 +106,8 @@ function QuickReorderModal({
         {success ? (
           <div className="flex flex-col items-center justify-center py-12 gap-3">
             <CheckCircle size={40} className="text-emerald-500" />
-            <p className="text-sm font-medium text-[var(--foreground)]">Purchase Order created!</p>
-            <p className="text-xs text-[var(--muted)]">Redirecting…</p>
+            <p className="text-sm font-medium text-[var(--foreground)]">{t("poCreated")}</p>
+            <p className="text-xs text-[var(--muted)]">{t("redirecting")}</p>
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="p-6 space-y-4">
@@ -120,9 +121,9 @@ function QuickReorderModal({
                 <p className="text-sm font-semibold text-[var(--foreground)]">{product.name}</p>
                 <p className="text-xs text-[var(--muted)]">
                   <span className={`font-medium ${product.stock === 0 ? "text-red-600" : "text-yellow-600"}`}>
-                    {product.stock === 0 ? "Out of stock" : `${product.stock} left`}
+                    {product.stock === 0 ? t("outOfStockTitle") : `${product.stock} left`}
                   </span>
-                  {" "}· min {product.minStock} {product.unit}
+                  {" "}· {t("minOfUnit", { min: product.minStock })} {product.unit}
                 </p>
               </div>
             </div>
@@ -133,14 +134,16 @@ function QuickReorderModal({
 
             {/* Supplier */}
             <div>
-              <label className="block text-sm font-medium text-[var(--foreground)] mb-1.5">Supplier *</label>
+              <label className="block text-sm font-medium text-[var(--foreground)] mb-1.5">
+                {tCommon("supplier")} *
+              </label>
               <div className="relative">
                 <select
                   value={supplierId}
                   onChange={e => setSupplierId(e.target.value)}
                   className={`${inputClass} appearance-none pr-8`}
                 >
-                  <option value="">Select supplier…</option>
+                  <option value="">{t("selectSupplierOption")}</option>
                   {suppliers.map(s => (
                     <option key={s.id} value={s.id}>{s.name}{s.country ? ` (${s.country})` : ""}</option>
                   ))}
@@ -153,22 +156,21 @@ function QuickReorderModal({
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-sm font-medium text-[var(--foreground)] mb-1.5">
-                  Quantity * <span className="text-[var(--muted)] font-normal">({product.unit})</span>
+                  {tCommon("quantity")} * <span className="text-[var(--muted)] font-normal">({product.unit})</span>
                 </label>
                 <input
-                  type="number"
-                  min="1"
+                  type="number" min="1"
                   value={quantity}
                   onChange={e => setQuantity(e.target.value)}
                   className={inputClass}
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-[var(--foreground)] mb-1.5">Unit Cost (RWF)</label>
+                <label className="block text-sm font-medium text-[var(--foreground)] mb-1.5">
+                  {t("unitCostLabel")}
+                </label>
                 <input
-                  type="number"
-                  min="0"
-                  step="0.01"
+                  type="number" min="0" step="0.01"
                   value={unitCost}
                   onChange={e => setUnitCost(e.target.value)}
                   placeholder="0"
@@ -179,7 +181,9 @@ function QuickReorderModal({
 
             {/* Expected date */}
             <div>
-              <label className="block text-sm font-medium text-[var(--foreground)] mb-1.5">Expected Delivery</label>
+              <label className="block text-sm font-medium text-[var(--foreground)] mb-1.5">
+                {tPO("expectedDelivery")}
+              </label>
               <input
                 type="date"
                 value={expectedDate}
@@ -190,12 +194,14 @@ function QuickReorderModal({
 
             {/* Notes */}
             <div>
-              <label className="block text-sm font-medium text-[var(--foreground)] mb-1.5">Notes</label>
+              <label className="block text-sm font-medium text-[var(--foreground)] mb-1.5">
+                {tCommon("notes")}
+              </label>
               <textarea
                 value={notes}
                 onChange={e => setNotes(e.target.value)}
                 rows={2}
-                placeholder={`Reorder for low stock: ${product.name}`}
+                placeholder={`Reorder: ${product.name}`}
                 className={`${inputClass} resize-none`}
               />
             </div>
@@ -206,7 +212,7 @@ function QuickReorderModal({
                 onClick={onClose}
                 className="flex-1 py-2.5 bg-[var(--background)] border border-[var(--border)] text-[var(--foreground)] rounded-lg hover:bg-[var(--border)] transition-colors"
               >
-                Cancel
+                {tCommon("cancel")}
               </Button>
               <Button
                 type="submit"
@@ -214,8 +220,8 @@ function QuickReorderModal({
                 className="flex-1 py-2.5 bg-baraka-primary hover:bg-baraka-dark text-white rounded-lg transition-colors disabled:opacity-50"
               >
                 {loading
-                  ? <span className="flex items-center justify-center gap-2"><Loader2 size={16} className="animate-spin" />Creating…</span>
-                  : <span className="flex items-center justify-center gap-2"><Plus size={16} />Create PO</span>
+                  ? <span className="flex items-center justify-center gap-2"><Loader2 size={16} className="animate-spin" />{tCommon("creating")}</span>
+                  : <span className="flex items-center justify-center gap-2"><Plus size={16} />{t("reorder")}</span>
                 }
               </Button>
             </div>
@@ -228,12 +234,16 @@ function QuickReorderModal({
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 export default function StockAlertsPage() {
-  const [items,      setItems]      = useState<AlertItem[]>([])
-  const [outOfStock, setOutOfStock] = useState(0)
-  const [lowStock,   setLowStock]   = useState(0)
-  const [isLoading,  setIsLoading]  = useState(true)
-  const [error,      setError]      = useState("")
-  const [key,        setKey]        = useState(0)
+  const t       = useTranslations("stockAlerts")
+  const tCommon = useTranslations("common")
+  const tInv    = useTranslations("inventory")
+
+  const [items,        setItems]        = useState<AlertItem[]>([])
+  const [outOfStock,   setOutOfStock]   = useState(0)
+  const [lowStock,     setLowStock]     = useState(0)
+  const [isLoading,    setIsLoading]    = useState(true)
+  const [error,        setError]        = useState("")
+  const [key,          setKey]          = useState(0)
   const [reordering,   setReordering]   = useState<AlertItem | null>(null)
   const [sendingAlert, setSendingAlert] = useState(false)
   const [alertSent,    setAlertSent]    = useState(false)
@@ -246,11 +256,11 @@ export default function StockAlertsPage() {
     try {
       const res  = await fetch("/api/alerts/low-stock", { method: "POST" })
       const json = await res.json()
-      if (!res.ok) { setAlertError(json.error || "Failed to send alert"); return }
+      if (!res.ok) { setAlertError(json.error || t("failedToSend")); return }
       setAlertSent(true)
       setTimeout(() => setAlertSent(false), 4000)
     } catch {
-      setAlertError("Failed to send alert")
+      setAlertError(t("failedToSend"))
     } finally {
       setSendingAlert(false)
     }
@@ -266,10 +276,10 @@ export default function StockAlertsPage() {
         setIsLoading(false)
       })
       .catch(() => {
-        setError("Failed to load stock alerts")
+        setError(t("failedToSend"))
         setIsLoading(false)
       })
-  }, [key])
+  }, [key]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const refresh = useCallback(() => { setIsLoading(true); setKey(k => k + 1) }, [])
 
@@ -284,28 +294,30 @@ export default function StockAlertsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-[var(--foreground)]">Stock Alerts</h1>
-          <p className="text-sm text-[var(--muted)] mt-1">
-            Products at or below their minimum stock level
-          </p>
+          <h1 className="text-2xl font-bold text-[var(--foreground)]">{t("title")}</h1>
+          <p className="text-sm text-[var(--muted)] mt-1">{t("subtitle")}</p>
         </div>
         <div className="flex items-center gap-2">
           {alertError && <p className="text-xs text-red-500">{alertError}</p>}
-          {alertSent  && <p className="text-xs text-emerald-600 flex items-center gap-1"><CheckCircle size={13} /> Alert sent!</p>}
+          {alertSent  && (
+            <p className="text-xs text-emerald-600 flex items-center gap-1">
+              <CheckCircle size={13} /> {t("alertSentMsg")}
+            </p>
+          )}
           <button
             onClick={handleSendAlert}
             disabled={sendingAlert || items.length === 0}
             className="flex items-center gap-2 text-sm px-3 py-2 rounded-lg bg-yellow-50 text-yellow-700 hover:bg-yellow-100 transition-colors disabled:opacity-50"
           >
             {sendingAlert ? <Loader2 size={14} className="animate-spin" /> : <AlertTriangle size={14} />}
-            {sendingAlert ? "Sending..." : "Email Alert"}
+            {sendingAlert ? t("sending") : t("emailAlert")}
           </button>
           <button
             onClick={refresh}
             className="flex items-center gap-2 text-sm text-baraka-sage hover:text-baraka-primary transition-colors"
           >
             <RefreshCw size={15} />
-            Refresh
+            {tCommon("refresh")}
           </button>
         </div>
       </div>
@@ -317,20 +329,20 @@ export default function StockAlertsPage() {
             <div className="w-9 h-9 bg-red-100 rounded-lg flex items-center justify-center">
               <AlertTriangle size={18} className="text-red-600" />
             </div>
-            <p className="text-sm text-[var(--muted)]">Out of Stock</p>
+            <p className="text-sm text-[var(--muted)]">{t("outOfStockTitle")}</p>
           </div>
           <p className="text-3xl font-bold text-red-600">{outOfStock}</p>
-          <p className="text-xs text-[var(--muted)] mt-1">Needs immediate reorder</p>
+          <p className="text-xs text-[var(--muted)] mt-1">{t("needsImmediateReorder")}</p>
         </div>
         <div className="bg-[var(--card)] rounded-xl p-5 border border-yellow-200">
           <div className="flex items-center gap-3 mb-2">
             <div className="w-9 h-9 bg-yellow-100 rounded-lg flex items-center justify-center">
               <AlertTriangle size={18} className="text-yellow-600" />
             </div>
-            <p className="text-sm text-[var(--muted)]">Running Low</p>
+            <p className="text-sm text-[var(--muted)]">{t("runningLow")}</p>
           </div>
           <p className="text-3xl font-bold text-yellow-600">{lowStock}</p>
-          <p className="text-xs text-[var(--muted)] mt-1">Below minimum threshold</p>
+          <p className="text-xs text-[var(--muted)] mt-1">{t("belowMinThreshold")}</p>
         </div>
       </div>
 
@@ -344,22 +356,30 @@ export default function StockAlertsPage() {
           <div className="flex flex-col items-center justify-center py-16 gap-3">
             <AlertTriangle size={32} className="text-red-400" />
             <p className="text-sm text-[var(--muted)]">{error}</p>
-            <Button onClick={refresh}>Try again</Button>
+            <Button onClick={refresh}>{tCommon("tryAgain")}</Button>
           </div>
         ) : items.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 gap-3">
             <CheckCircle size={40} className="text-emerald-400" />
-            <p className="text-sm font-medium text-[var(--foreground)]">All stock levels are healthy</p>
-            <p className="text-xs text-[var(--muted)]">No products are below their minimum threshold right now.</p>
+            <p className="text-sm font-medium text-[var(--foreground)]">{t("allHealthy")}</p>
+            <p className="text-xs text-[var(--muted)]">{t("allHealthyDesc")}</p>
           </div>
         ) : (
           <table className="w-full">
             <thead>
               <tr className="border-b border-[var(--border)] bg-[var(--background)]">
-                <th className="text-left text-xs font-semibold text-[var(--muted)] px-6 py-3 uppercase tracking-wide">Product</th>
-                <th className="text-left text-xs font-semibold text-[var(--muted)] px-4 py-3 uppercase tracking-wide">Supplier</th>
-                <th className="text-left text-xs font-semibold text-[var(--muted)] px-4 py-3 uppercase tracking-wide w-48">Stock Level</th>
-                <th className="text-right text-xs font-semibold text-[var(--muted)] px-6 py-3 uppercase tracking-wide">Action</th>
+                <th className="text-left text-xs font-semibold text-[var(--muted)] px-6 py-3 uppercase tracking-wide">
+                  {tInv("product")}
+                </th>
+                <th className="text-left text-xs font-semibold text-[var(--muted)] px-4 py-3 uppercase tracking-wide">
+                  {tCommon("supplier")}
+                </th>
+                <th className="text-left text-xs font-semibold text-[var(--muted)] px-4 py-3 uppercase tracking-wide w-48">
+                  {t("stockLevelCol")}
+                </th>
+                <th className="text-right text-xs font-semibold text-[var(--muted)] px-6 py-3 uppercase tracking-wide">
+                  {tCommon("actions")}
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[var(--border)]">
@@ -378,7 +398,7 @@ export default function StockAlertsPage() {
                         <div>
                           <p className="text-sm font-semibold text-[var(--foreground)]">{item.name}</p>
                           <p className="text-xs text-[var(--muted)]">
-                            {item.categoryName ?? "Uncategorized"}
+                            {item.categoryName ?? tInv("allCategories").replace("All ", "")}
                             {item.sku ? ` · ${item.sku}` : ""}
                           </p>
                         </div>
@@ -395,7 +415,7 @@ export default function StockAlertsPage() {
                           )}
                         </div>
                       ) : (
-                        <span className="text-xs text-[var(--muted)] italic">No supplier</span>
+                        <span className="text-xs text-[var(--muted)] italic">{t("noSupplierLabel")}</span>
                       )}
                     </td>
 
@@ -403,9 +423,9 @@ export default function StockAlertsPage() {
                     <td className="px-4 py-4 w-48">
                       <div className="flex items-center justify-between mb-1.5">
                         <span className={`text-sm font-bold ${critical ? "text-red-600" : "text-yellow-600"}`}>
-                          {critical ? "Out of stock" : `${item.stock} ${item.unit}`}
+                          {critical ? t("outOfStockTitle") : `${item.stock} ${item.unit}`}
                         </span>
-                        <span className="text-xs text-[var(--muted)]">min {item.minStock}</span>
+                        <span className="text-xs text-[var(--muted)]">{t("minOfUnit", { min: item.minStock })}</span>
                       </div>
                       <div className="w-full h-2 bg-[var(--background)] rounded-full overflow-hidden">
                         <div
@@ -413,7 +433,7 @@ export default function StockAlertsPage() {
                           style={{ width: `${pct}%` }}
                         />
                       </div>
-                      <p className="text-xs text-[var(--muted)] mt-1">{pct}% of minimum</p>
+                      <p className="text-xs text-[var(--muted)] mt-1">{t("percentOfMinimum", { pct })}</p>
                     </td>
 
                     {/* Action */}
@@ -423,7 +443,7 @@ export default function StockAlertsPage() {
                         className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-baraka-primary/10 text-baraka-primary hover:bg-baraka-primary hover:text-white transition-colors ml-auto"
                       >
                         <Plus size={13} />
-                        Reorder
+                        {t("reorder")}
                       </button>
                     </td>
 

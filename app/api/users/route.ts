@@ -3,6 +3,8 @@ import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { CreateStaffSchema } from "@/lib/validators"
 import bcrypt from "bcryptjs"
+import { createAuditLog } from "@/lib/audit"
+import { getIp } from "@/lib/rate-limit"
 
 // GET /api/users — list all staff for this business (OWNER only)
 export async function GET(_request: NextRequest) {
@@ -51,6 +53,23 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 })
     }
 
+    // Plan limit: enforce maxUsers if set on this business
+    const bizLimits = await prisma.business.findUnique({
+      where:  { id: session.user.businessId },
+      select: { maxUsers: true },
+    })
+    if (bizLimits?.maxUsers !== null && bizLimits?.maxUsers !== undefined) {
+      const count = await prisma.user.count({
+        where: { businessId: session.user.businessId },
+      })
+      if (count >= bizLimits.maxUsers) {
+        return NextResponse.json(
+          { error: `User limit reached. Your plan allows a maximum of ${bizLimits.maxUsers} users.` },
+          { status: 403 }
+        )
+      }
+    }
+
     const existing = await prisma.user.findUnique({ where: { email: parsed.data.email } })
     if (existing) {
       return NextResponse.json({ error: "A user with this email already exists" }, { status: 409 })
@@ -69,6 +88,16 @@ export async function POST(request: NextRequest) {
       select: {
         id: true, name: true, email: true, role: true, isActive: true, createdAt: true,
       },
+    })
+
+    createAuditLog({
+      businessId: session.user.businessId,
+      userId:     session.user.id,
+      action:     "USER_CREATED",
+      entityType: "User",
+      entityId:   user.id,
+      metadata:   { name: user.name, email: user.email, role: user.role },
+      ipAddress:  getIp(request),
     })
 
     return NextResponse.json(user, { status: 201 })

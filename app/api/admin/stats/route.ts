@@ -4,7 +4,8 @@ import { prisma } from "@/lib/prisma"
 import { serialize } from "@/lib/serialize"
 
 // GET /api/admin/stats
-// Platform metadata ONLY — no tenant financial data (revenue, amounts, etc.)
+// Platform metadata ONLY — counts, signups, and active support sessions.
+// No tenant financial data (revenue, orders, expenses, customers, etc.)
 export async function GET() {
   const auth = await requireSuperAdmin()
   if (auth instanceof NextResponse) return auth
@@ -14,8 +15,7 @@ export async function GET() {
     activeBusinesses,
     suspendedBusinesses,
     totalUsers,
-    totalOrders,
-    totalProducts,
+    activeSupportSessions,
     recentBusinesses,
     monthlySignups,
   ] = await Promise.all([
@@ -23,14 +23,16 @@ export async function GET() {
     prisma.business.count({ where: { status: "ACTIVE" } }),
     prisma.business.count({ where: { status: "SUSPENDED" } }),
     prisma.user.count(),
-    prisma.order.count(),
-    prisma.product.count(),
+    prisma.supportSession.count({
+      where: { status: "ACTIVE", expiresAt: { gt: new Date() } },
+    }),
     prisma.business.findMany({
       orderBy: { createdAt: "desc" },
       take: 5,
       select: {
-        id: true, name: true, email: true, status: true, createdAt: true,
-        _count: { select: { users: true, orders: true, products: true } },
+        id: true, name: true, email: true, status: true,
+        plan: true, createdAt: true,
+        _count: { select: { users: true, branches: true } },
       },
     }),
     prisma.$queryRaw<{ month: string; count: string }[]>`
@@ -48,8 +50,7 @@ export async function GET() {
     activeBusinesses,
     suspendedBusinesses,
     totalUsers,
-    totalOrders,
-    totalProducts,
+    activeSupportSessions,
     recentBusinesses,
     monthlySignups,
   }))

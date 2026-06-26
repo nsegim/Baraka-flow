@@ -2,18 +2,19 @@
 
 import { useState, useEffect, useCallback } from "react"
 import {
-  Building2, Search, RefreshCw, Users, ShoppingCart, Package,
+  Building2, Search, RefreshCw, Users, GitBranch,
   ChevronDown, ChevronUp, Plus, ShieldOff, ShieldCheck,
   Trash2, Settings2, X, Loader2,
 } from "lucide-react"
 
 interface Business {
   id: string; name: string; email: string; phone: string | null
-  currency: string; status: "ACTIVE" | "SUSPENDED"
+  currency: string; status: "ACTIVE" | "SUSPENDED"; plan: string
   suspendedAt: string | null; suspendedReason: string | null
   maxUsers: number | null; maxProducts: number | null
   createdAt: string; updatedAt: string
-  _count: { users: number; orders: number; products: number; customers: number; expenses: number; purchaseOrders: number }
+  _count: { users: number; branches: number }
+  users: { name: string; email: string }[]
 }
 interface Meta { total: number; page: number; limit: number; pages: number }
 
@@ -31,7 +32,7 @@ function CreateModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
   async function handleSubmit(e: React.SyntheticEvent) {
     e.preventDefault()
     setLoading(true); setError("")
-    const res  = await fetch("/api/admin/businesses", {
+    const res = await fetch("/api/admin/businesses", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         ...form,
@@ -111,7 +112,7 @@ function SuspendModal({ biz, onClose, onDone }: { biz: Business; onClose: () => 
 
   async function handleSuspend() {
     setLoading(true); setError("")
-    const res  = await fetch(`/api/admin/businesses/${biz.id}`, {
+    const res = await fetch(`/api/admin/businesses/${biz.id}`, {
       method: "PATCH", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "suspend", suspendedReason: reason }),
     })
@@ -132,7 +133,7 @@ function SuspendModal({ biz, onClose, onDone }: { biz: Business; onClose: () => 
           </div>
         </div>
         <div className="p-5 space-y-4">
-          <p className="text-sm text-gray-400">All users of this business will be locked out immediately. They will see the suspension reason when trying to sign in.</p>
+          <p className="text-sm text-gray-400">All users of this business will be locked out immediately.</p>
           {error && <p className="text-sm text-red-400">{error}</p>}
           <div>
             <label className="block text-xs font-medium text-gray-400 mb-1.5">Reason (shown to users)</label>
@@ -221,10 +222,10 @@ export default function AdminBusinessesPage() {
   const [page,       setPage]       = useState(1)
   const [expandedId, setExpandedId] = useState<string | null>(null)
 
-  const [showCreate,  setShowCreate]  = useState(false)
-  const [suspendBiz,  setSuspendBiz]  = useState<Business | null>(null)
-  const [limitsBiz,   setLimitsBiz]   = useState<Business | null>(null)
-  const [deletingId,  setDeletingId]  = useState<string | null>(null)
+  const [showCreate, setShowCreate] = useState(false)
+  const [suspendBiz, setSuspendBiz] = useState<Business | null>(null)
+  const [limitsBiz,  setLimitsBiz]  = useState<Business | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
 
   const load = useCallback(() => {
     setIsLoading(true)
@@ -256,6 +257,8 @@ export default function AdminBusinessesPage() {
   function formatDate(d: string) {
     return new Date(d).toLocaleDateString("en-RW", { day: "numeric", month: "short", year: "numeric" })
   }
+
+  const owner = (biz: Business) => biz.users?.[0]
 
   return (
     <div className="space-y-5 max-w-6xl">
@@ -309,17 +312,17 @@ export default function AdminBusinessesPage() {
                         {biz.status === "SUSPENDED" && (
                           <span className="text-xs px-1.5 py-0.5 rounded-full bg-red-500/20 text-red-400 border border-red-500/20 shrink-0">SUSPENDED</span>
                         )}
+                        <span className="text-xs px-1.5 py-0.5 rounded-full bg-gray-700 text-gray-400 shrink-0">{biz.plan}</span>
                       </div>
                       <p className="text-xs text-gray-500 truncate">{biz.email}</p>
                     </div>
                   </div>
 
-                  {/* Right — stats + actions */}
+                  {/* Right — metadata stats + actions */}
                   <div className="flex items-center gap-4 shrink-0 ml-4">
                     <div className="hidden md:flex items-center gap-3 text-xs text-gray-500">
                       <span className="flex items-center gap-1"><Users size={11} />{biz._count.users}{biz.maxUsers ? `/${biz.maxUsers}` : ""}</span>
-                      <span className="flex items-center gap-1"><ShoppingCart size={11} />{biz._count.orders}</span>
-                      <span className="flex items-center gap-1"><Package size={11} />{biz._count.products}{biz.maxProducts ? `/${biz.maxProducts}` : ""}</span>
+                      <span className="flex items-center gap-1"><GitBranch size={11} />{biz._count.branches}</span>
                     </div>
                     <span className="text-xs text-gray-600 hidden sm:block">{formatDate(biz.createdAt)}</span>
 
@@ -347,17 +350,15 @@ export default function AdminBusinessesPage() {
                   </div>
                 </div>
 
-                {/* Expanded details */}
+                {/* Expanded details — metadata only, no financial data */}
                 {expandedId === biz.id && (
                   <div className="px-5 pb-5 pt-2 bg-gray-800/30 border-t border-gray-800">
-                    <div className="grid grid-cols-3 sm:grid-cols-6 gap-3 mt-2">
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-2">
                       {[
-                        { label: "Users",    value: `${biz._count.users}${biz.maxUsers ? ` / ${biz.maxUsers}` : ""}` },
-                        { label: "Orders",   value: biz._count.orders },
-                        { label: "Products", value: `${biz._count.products}${biz.maxProducts ? ` / ${biz.maxProducts}` : ""}` },
-                        { label: "Customers",       value: biz._count.customers },
-                        { label: "Expenses",         value: biz._count.expenses },
-                        { label: "Purchase Orders",  value: biz._count.purchaseOrders },
+                        { label: "Users",    value: `${biz._count.users}${biz.maxUsers ? ` / ${biz.maxUsers}` : ""}`, icon: Users },
+                        { label: "Branches", value: biz._count.branches, icon: GitBranch },
+                        { label: "Plan",     value: biz.plan, icon: null },
+                        { label: "Max Products", value: biz.maxProducts ? `${biz.maxProducts}` : "Unlimited", icon: null },
                       ].map(s => (
                         <div key={s.label} className="bg-gray-900 rounded-lg p-3 border border-gray-700">
                           <p className="text-xs text-gray-500">{s.label}</p>
@@ -366,6 +367,7 @@ export default function AdminBusinessesPage() {
                       ))}
                     </div>
                     <div className="mt-3 flex flex-wrap gap-4 text-xs text-gray-500">
+                      {owner(biz) && <span>Owner: {owner(biz)!.name} · {owner(biz)!.email}</span>}
                       {biz.phone && <span>Phone: {biz.phone}</span>}
                       <span>Currency: {biz.currency}</span>
                       <span>Joined: {formatDate(biz.createdAt)}</span>

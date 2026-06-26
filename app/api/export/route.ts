@@ -34,18 +34,23 @@ export async function GET(request: NextRequest) {
       const products = await prisma.product.findMany({
         where:   { businessId },
         include: {
-          category: { select: { name: true } },
-          supplier: { select: { name: true } },
+          category:  { select: { name: true } },
+          supplier:  { select: { name: true } },
+          inventory: { select: { stock: true, minStock: true } },
         },
         orderBy: { name: "asc" },
       })
 
       csv = toCSV(
-        ["Name", "SKU", "Price (RWF)", "Cost Price (RWF)", "Stock", "Min Stock", "Unit", "Category", "Supplier", "Origin"],
-        products.map(p => [
-          p.name, p.sku, Number(p.price), p.costPrice ? Number(p.costPrice) : null,
-          p.stock, p.minStock, p.unit, p.category?.name, p.supplier?.name, p.origin,
-        ])
+        ["Name", "SKU", "Price (RWF)", "Cost Price (RWF)", "Stock (Total)", "Min Stock", "Unit", "Category", "Supplier", "Origin"],
+        products.map(p => {
+          const totalStock  = p.inventory.reduce((acc, bi) => acc + bi.stock, 0)
+          const maxMinStock = p.inventory.reduce((acc, bi) => Math.max(acc, bi.minStock), 0)
+          return [
+            p.name, p.sku, Number(p.price), p.costPrice ? Number(p.costPrice) : null,
+            totalStock, maxMinStock, p.unit, p.category?.name, p.supplier?.name, p.origin,
+          ]
+        })
       )
       filename = "products.csv"
 

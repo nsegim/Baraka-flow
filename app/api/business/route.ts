@@ -3,6 +3,8 @@ import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { UpdateBusinessSchema } from "@/lib/validators"
 import { serialize } from "@/lib/serialize"
+import { createAuditLog } from "@/lib/audit"
+import { getIp } from "@/lib/rate-limit"
 
 // GET /api/business — fetch this session's business profile
 export async function GET(_request: NextRequest) {
@@ -53,6 +55,16 @@ export async function PATCH(request: NextRequest) {
         UPDATE "Business" SET "taxRate" = ${taxRate} WHERE id = ${session.user.businessId}
       `.catch(() => {})
     }
+
+    createAuditLog({
+      businessId: session.user.businessId,
+      userId:     session.user.id,
+      action:     "BUSINESS_SETTINGS_CHANGED",
+      entityType: "Business",
+      entityId:   session.user.businessId,
+      metadata:   { fields: Object.keys(parsed.data) },
+      ipAddress:  getIp(request),
+    })
 
     return NextResponse.json(serialize(updated))
 

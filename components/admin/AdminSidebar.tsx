@@ -2,13 +2,15 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { LayoutDashboard, Building2, Users, LogOut, ShieldCheck } from "lucide-react"
+import { LayoutDashboard, Building2, Users, LogOut, ShieldCheck, HeadphonesIcon, Activity } from "lucide-react"
 import { signOut } from "next-auth/react"
 
 const navItems = [
-  { label: "Overview",    href: "/admin",             icon: LayoutDashboard },
-  { label: "Businesses",  href: "/admin/businesses",  icon: Building2       },
-  { label: "Users",       href: "/admin/users",       icon: Users           },
+  { label: "Overview",       href: "/admin",                icon: LayoutDashboard  },
+  { label: "Businesses",     href: "/admin/businesses",     icon: Building2        },
+  { label: "Users",          href: "/admin/users",          icon: Users            },
+  { label: "Support",        href: "/admin/support",        icon: HeadphonesIcon   },
+  { label: "Platform Logs",  href: "/admin/platform-logs",  icon: Activity         },
 ]
 
 export default function AdminSidebar() {
@@ -24,7 +26,7 @@ export default function AdminSidebar() {
           </div>
           <div>
             <p className="text-sm font-bold text-white">BarakaFlow</p>
-            <p className="text-xs text-gray-500">Admin Console</p>
+            <p className="text-xs text-gray-500">Control Room</p>
           </div>
         </div>
       </div>
@@ -63,7 +65,7 @@ export default function AdminSidebar() {
           Back to App
         </Link>
         <button
-          onClick={() => signOut({ callbackUrl: "/login" })}
+          onClick={() => signOut({ callbackUrl: "/admin-login" })}
           className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-500 hover:bg-red-500/10 hover:text-red-400 transition-colors"
         >
           <LogOut size={17} />
