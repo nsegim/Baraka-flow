@@ -309,17 +309,27 @@ export default function PurchaseOrdersPage() {
   const t       = useTranslations("purchaseOrders")
   const tCommon = useTranslations("common")
 
-  const [orders,      setOrders]      = useState<PurchaseOrder[]>([])
-  const [meta,        setMeta]        = useState<Meta>({ total: 0, page: 1, limit: 50, pages: 0 })
-  const [isLoading,   setIsLoading]   = useState(true)
-  const [showCreate,  setShowCreate]  = useState(false)
-  const [receivingPO, setReceivingPO] = useState<PurchaseOrder | null>(null)
-  const [page,        setPage]        = useState(1)
-  const [key,         setKey]         = useState(0)
-  const [actionId,    setActionId]    = useState<string | null>(null)
+  const [orders,       setOrders]       = useState<PurchaseOrder[]>([])
+  const [meta,         setMeta]         = useState<Meta>({ total: 0, page: 1, limit: 50, pages: 0 })
+  const [isLoading,    setIsLoading]    = useState(true)
+  const [showCreate,   setShowCreate]   = useState(false)
+  const [receivingPO,  setReceivingPO]  = useState<PurchaseOrder | null>(null)
+  const [page,         setPage]         = useState(1)
+  const [key,          setKey]          = useState(0)
+  const [actionId,     setActionId]     = useState<string | null>(null)
+  const [filterStatus, setFilterStatus] = useState("")
+  const [suppliers,    setSuppliers]    = useState<Supplier[]>([])
+  const [filterSup,    setFilterSup]    = useState("")
 
   useEffect(() => {
-    fetch(`/api/purchase-orders?page=${page}&limit=50`)
+    fetch("/api/suppliers").then(r => r.json()).then(d => { if (Array.isArray(d)) setSuppliers(d) }).catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    const sp = new URLSearchParams({ page: String(page), limit: "50" })
+    if (filterStatus) sp.set("status",     filterStatus)
+    if (filterSup)    sp.set("supplierId", filterSup)
+    fetch(`/api/purchase-orders?${sp}`)
       .then(r => r.json())
       .then(json => {
         setOrders(json.data ?? [])
@@ -327,7 +337,7 @@ export default function PurchaseOrdersPage() {
         setIsLoading(false)
       })
       .catch(() => setIsLoading(false))
-  }, [page, key])
+  }, [page, key, filterStatus, filterSup])
 
   const refresh = useCallback(() => { setIsLoading(true); setKey(k => k + 1) }, [])
 
@@ -365,6 +375,32 @@ export default function PurchaseOrdersPage() {
         <Button onClick={() => setShowCreate(true)} className="flex items-center gap-2 bg-baraka-primary hover:bg-baraka-dark text-white px-4 py-2.5 rounded-lg transition-colors">
           <Plus size={18} /> {t("newPO")}
         </Button>
+      </div>
+
+      {/* ── Filter Bar ── */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <select value={filterStatus} onChange={e => { setFilterStatus(e.target.value); setPage(1) }}
+          className="px-3 py-2 rounded-lg border border-[var(--border)] bg-[var(--card)] text-sm text-[var(--foreground)] outline-none focus:border-baraka-primary cursor-pointer">
+          <option value="">Status — All</option>
+          <option value="DRAFT">Draft</option>
+          <option value="SENT">Sent</option>
+          <option value="CONFIRMED">Confirmed</option>
+          <option value="RECEIVED">Received</option>
+          <option value="CANCELLED">Cancelled</option>
+        </select>
+
+        <select value={filterSup} onChange={e => { setFilterSup(e.target.value); setPage(1) }}
+          className="px-3 py-2 rounded-lg border border-[var(--border)] bg-[var(--card)] text-sm text-[var(--foreground)] outline-none focus:border-baraka-primary cursor-pointer">
+          <option value="">Supplier — All</option>
+          {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+        </select>
+
+        {(filterStatus || filterSup) && (
+          <button onClick={() => { setFilterStatus(""); setFilterSup(""); setPage(1) }}
+            className="flex items-center gap-1.5 px-3 py-2 text-sm text-red-500 hover:bg-red-50 rounded-lg border border-red-100 transition-colors">
+            <X size={13} /> Clear
+          </button>
+        )}
       </div>
 
       {/* Table */}

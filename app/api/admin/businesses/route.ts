@@ -12,6 +12,7 @@ const CreateBusinessSchema = z.object({
   ownerEmail:    z.email("Invalid email"),
   ownerPassword: z.string().min(8, "Password must be at least 8 characters"),
   currency:      z.string().default("RWF"),
+  planId:        z.string().optional().nullable(),
   maxUsers:      z.number().int().positive().nullable().optional(),
   maxProducts:   z.number().int().positive().nullable().optional(),
 })
@@ -42,15 +43,20 @@ export async function GET(request: NextRequest) {
       take: limit,
       select: {
         id: true, name: true, email: true, phone: true,
-        currency: true, status: true, plan: true, planExpiresAt: true,
+        currency: true, status: true, plan: true,
+        planId: true, subscriptionStatus: true,
+        trialEndsAt: true, planExpiresAt: true,
         suspendedAt: true, suspendedReason: true,
-        maxUsers: true, maxProducts: true,
+        maxUsers: true, maxProducts: true, maxOrders: true, maxBranches: true,
         createdAt: true, updatedAt: true,
+        subscriptionPlan: { select: { id: true, name: true, slug: true } },
         // Metadata counts only — no operational/financial data
         _count: {
           select: {
             users:    true,
             branches: true,
+            products: true,
+            orders:   true,
           },
         },
         // Owner info for contact purposes
@@ -81,7 +87,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 })
   }
 
-  const { businessName, ownerName, ownerEmail, ownerPassword, currency, maxUsers, maxProducts } = parsed.data
+  const { businessName, ownerName, ownerEmail, ownerPassword, currency, planId, maxUsers, maxProducts } = parsed.data
 
   const existing = await prisma.user.findUnique({ where: { email: ownerEmail } })
   if (existing) {
@@ -95,8 +101,10 @@ export async function POST(request: NextRequest) {
       name:        businessName,
       email:       ownerEmail,
       currency,
-      maxUsers:    maxUsers    ?? null,
-      maxProducts: maxProducts ?? null,
+      planId:             planId      ?? null,
+      subscriptionStatus: planId ? "ACTIVE" : "TRIAL",
+      maxUsers:           maxUsers    ?? null,
+      maxProducts:        maxProducts ?? null,
       users: {
         create: {
           name:     ownerName,

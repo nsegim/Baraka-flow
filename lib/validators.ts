@@ -24,10 +24,35 @@ export const CreateProductSchema = z.object({
   origin:      z.string().max(100).optional().nullable(),
   categoryId:  z.cuid("Invalid category").optional().nullable(),
   supplierId:  z.cuid("Invalid supplier").optional().nullable(),
+  // Flexible attributes: raw JSON blob (escape hatch for unstructured data)
+  attributes:  z.record(z.string(), z.unknown()).optional().nullable(),
+  // Structured attribute values linked to tenant-defined AttributeTemplates
+  attributeValues: z.array(z.object({
+    templateId: z.cuid("Invalid attribute template ID"),
+    value:      z.string().max(1000, "Attribute value too long"),
+  })).optional(),
 })
 
 export const UpdateProductSchema = CreateProductSchema.partial().extend({
   stockReason: z.string().max(500).optional(),
+})
+
+// ── ATTRIBUTE TEMPLATES ───────────────────────────────────────────────────────
+
+export const CreateAttributeTemplateSchema = z.object({
+  name:       z.string().min(1, "Name is required").max(100),
+  key:        z.string().min(1, "Key is required").max(50)
+                .regex(/^[a-z][a-z0-9_]*$/, "Key must be lowercase letters/numbers/underscores, starting with a letter"),
+  type:       z.enum(["TEXT", "NUMBER", "BOOLEAN", "SELECT"]).default("TEXT"),
+  options:    z.array(z.string().min(1).max(200)).optional().nullable(),
+  unit:       z.string().max(50).optional().nullable(),
+  isRequired: z.boolean().default(false),
+  sortOrder:  z.number().int().min(0).default(0),
+  categoryId: z.cuid("Invalid category").optional().nullable(),
+})
+
+export const UpdateAttributeTemplateSchema = CreateAttributeTemplateSchema.partial().extend({
+  isActive: z.boolean().optional(),
 })
 
 // ── ORDERS ────────────────────────────────────────────────────────────────────

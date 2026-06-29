@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react"
 import {
-  Plus, ShoppingCart, RefreshCw,
+  Plus, ShoppingCart, RefreshCw, Search,
   ChevronDown, Trash2, CreditCard, FileText,
   Truck, X, RotateCcw,
 } from "lucide-react"
@@ -91,6 +91,25 @@ export default function OrdersPage() {
   const [deletingId,     setDeletingId]     = useState<string | null>(null)
   const [page,           setPage]           = useState(1)
   const [key,            setKey]            = useState(0)
+
+  // ── Filters ───────────────────────────────────────────────────────────────
+  const [filterSearch,  setFilterSearch]  = useState("")
+  const [debouncedSearch, setDebouncedSearch] = useState("")
+  const [filterStatus,  setFilterStatus]  = useState("")
+  const [filterPayment, setFilterPayment] = useState("")
+  const [filterMonth,   setFilterMonth]   = useState("")
+
+  useEffect(() => {
+    const t = setTimeout(() => { setDebouncedSearch(filterSearch); setPage(1) }, 350)
+    return () => clearTimeout(t)
+  }, [filterSearch])
+
+  const hasActiveFilters = !!(debouncedSearch || filterStatus || filterPayment || filterMonth)
+
+  function clearOrderFilters() {
+    setFilterSearch(""); setDebouncedSearch(""); setFilterStatus("")
+    setFilterPayment(""); setFilterMonth(""); setPage(1)
+  }
   const [deliverOrder,   setDeliverOrder]   = useState<Order | null>(null)
   const [deliveryNotes,  setDeliveryNotes]  = useState("")
   const [delivering,     setDelivering]     = useState(false)
@@ -127,7 +146,12 @@ export default function OrdersPage() {
   }
 
   useEffect(() => {
-    fetch(`/api/orders?page=${page}&limit=50`)
+    const sp = new URLSearchParams({ page: String(page), limit: "50" })
+    if (debouncedSearch) sp.set("search",        debouncedSearch)
+    if (filterStatus)    sp.set("status",         filterStatus)
+    if (filterPayment)   sp.set("paymentStatus",  filterPayment)
+    if (filterMonth)     sp.set("month",           filterMonth)
+    fetch(`/api/orders?${sp}`)
       .then(r => r.json())
       .then(json => {
         setOrders(json.data)
@@ -139,7 +163,7 @@ export default function OrdersPage() {
         setError(t("failedToLoad"))
         setIsLoading(false)
       })
-  }, [page, key]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [page, key, debouncedSearch, filterStatus, filterPayment, filterMonth]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const goToPage = useCallback((newPage: number) => {
     setIsLoading(true)
@@ -309,6 +333,48 @@ export default function OrdersPage() {
           <p className="text-xl font-bold text-emerald-600">{deliveredCount}</p>
           <p className="text-xs text-baraka-sage mt-1">{t("successfullyCompleted")}</p>
         </div>
+      </div>
+
+      {/* ── FILTER BAR ── */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-2 bg-[var(--card)] rounded-lg px-3 py-2 flex-1 min-w-[180px] border border-[var(--border)]">
+          <Search size={14} className="text-[var(--muted)] shrink-0" />
+          <input
+            type="text"
+            placeholder="Search customer, order #…"
+            value={filterSearch}
+            onChange={e => setFilterSearch(e.target.value)}
+            className="bg-transparent text-sm outline-none text-[var(--foreground)] w-full placeholder:text-[var(--muted)]"
+          />
+          {filterSearch && <button onClick={() => setFilterSearch("")}><X size={13} className="text-[var(--muted)]" /></button>}
+        </div>
+
+        <select value={filterStatus} onChange={e => { setFilterStatus(e.target.value); setPage(1) }}
+          className="px-3 py-2 rounded-lg border border-[var(--border)] bg-[var(--card)] text-sm text-[var(--foreground)] outline-none focus:border-baraka-primary cursor-pointer">
+          <option value="">Status — All</option>
+          <option value="PENDING">Pending</option>
+          <option value="CONFIRMED">Confirmed</option>
+          <option value="DELIVERED">Delivered</option>
+          <option value="CANCELLED">Cancelled</option>
+        </select>
+
+        <select value={filterPayment} onChange={e => { setFilterPayment(e.target.value); setPage(1) }}
+          className="px-3 py-2 rounded-lg border border-[var(--border)] bg-[var(--card)] text-sm text-[var(--foreground)] outline-none focus:border-baraka-primary cursor-pointer">
+          <option value="">Payment — All</option>
+          <option value="UNPAID">Unpaid</option>
+          <option value="PARTIAL">Partial</option>
+          <option value="PAID">Paid</option>
+        </select>
+
+        <input type="month" value={filterMonth} onChange={e => { setFilterMonth(e.target.value); setPage(1) }}
+          className="px-3 py-2 rounded-lg border border-[var(--border)] bg-[var(--card)] text-sm text-[var(--foreground)] outline-none focus:border-baraka-primary cursor-pointer" />
+
+        {hasActiveFilters && (
+          <button onClick={clearOrderFilters}
+            className="flex items-center gap-1.5 px-3 py-2 text-sm text-red-500 hover:bg-red-50 rounded-lg border border-red-100 transition-colors">
+            <X size={13} /> Clear
+          </button>
+        )}
       </div>
 
       {/* ── LOADING ── */}

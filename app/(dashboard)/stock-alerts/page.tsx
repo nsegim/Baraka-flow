@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useMemo } from "react"
 import {
   AlertTriangle, RefreshCw, Loader2,
   Package, X, Plus, ChevronDown, CheckCircle,
@@ -283,6 +283,14 @@ export default function StockAlertsPage() {
 
   const refresh = useCallback(() => { setIsLoading(true); setKey(k => k + 1) }, [])
 
+  const [filterSeverity, setFilterSeverity] = useState<"" | "out_of_stock" | "low_stock">("")
+
+  const visibleItems = useMemo(() => {
+    if (!filterSeverity) return items
+    if (filterSeverity === "out_of_stock") return items.filter(i => i.stock === 0)
+    return items.filter(i => i.stock > 0 && i.stock <= i.minStock)
+  }, [items, filterSeverity])
+
   function stockPercent(item: AlertItem) {
     if (item.minStock === 0) return 0
     return Math.min(100, Math.round((item.stock / item.minStock) * 100))
@@ -346,6 +354,22 @@ export default function StockAlertsPage() {
         </div>
       </div>
 
+      {/* ── Filter Bar ── */}
+      <div className="flex items-center gap-2">
+        <select value={filterSeverity} onChange={e => setFilterSeverity(e.target.value as typeof filterSeverity)}
+          className="px-3 py-2 rounded-lg border border-[var(--border)] bg-[var(--card)] text-sm text-[var(--foreground)] outline-none focus:border-baraka-primary cursor-pointer">
+          <option value="">Severity — All</option>
+          <option value="out_of_stock">Out of Stock</option>
+          <option value="low_stock">Low Stock</option>
+        </select>
+        {filterSeverity && (
+          <button onClick={() => setFilterSeverity("")}
+            className="flex items-center gap-1.5 px-3 py-2 text-sm text-red-500 hover:bg-red-50 rounded-lg border border-red-100 transition-colors">
+            <X size={13} /> Clear
+          </button>
+        )}
+      </div>
+
       {/* Table */}
       <div className="bg-[var(--card)] rounded-xl border border-[var(--border)] overflow-hidden shadow-sm">
         {isLoading ? (
@@ -383,7 +407,7 @@ export default function StockAlertsPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-[var(--border)]">
-              {items.map(item => {
+              {visibleItems.map(item => {
                 const pct      = stockPercent(item)
                 const critical = item.stock === 0
                 return (

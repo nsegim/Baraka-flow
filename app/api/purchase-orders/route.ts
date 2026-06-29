@@ -18,8 +18,11 @@ export async function GET(request: NextRequest) {
     const skip   = (page - 1) * limit
     const status = searchParams.get("status")
 
+    const supplierId = searchParams.get("supplierId")
+
     const where: Record<string, unknown> = buildBranchWhere(ctx)
-    if (status) where.status = status
+    if (status)     where.status     = status
+    if (supplierId) where.supplierId = supplierId
 
     const [orders, total] = await prisma.$transaction([
       prisma.purchaseOrder.findMany({

@@ -5,6 +5,7 @@ import { CreateStaffSchema } from "@/lib/validators"
 import bcrypt from "bcryptjs"
 import { createAuditLog } from "@/lib/audit"
 import { getIp } from "@/lib/rate-limit"
+import { checkPlanLimit } from "@/lib/plan-limits"
 
 // GET /api/users — list all staff for this business (OWNER only)
 export async function GET(_request: NextRequest) {
@@ -53,21 +54,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 })
     }
 
-    // Plan limit: enforce maxUsers if set on this business
-    const bizLimits = await prisma.business.findUnique({
-      where:  { id: session.user.businessId },
-      select: { maxUsers: true },
-    })
-    if (bizLimits?.maxUsers !== null && bizLimits?.maxUsers !== undefined) {
-      const count = await prisma.user.count({
-        where: { businessId: session.user.businessId },
-      })
-      if (count >= bizLimits.maxUsers) {
-        return NextResponse.json(
-          { error: `User limit reached. Your plan allows a maximum of ${bizLimits.maxUsers} users.` },
-          { status: 403 }
-        )
-      }
+    // Plan enforcement
+    const limitCheck = await checkPlanLimit(session.user.businessId, "users")
+    if (!limitCheck.allowed) {
+      return NextResponse.json({ error: limitCheck.error }, { status: 403 })
     }
 
     const existing = await prisma.user.findUnique({ where: { email: parsed.data.email } })

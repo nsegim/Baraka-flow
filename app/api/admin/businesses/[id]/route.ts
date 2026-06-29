@@ -6,10 +6,16 @@ import { createPlatformAuditLog } from "@/lib/platform-audit"
 import { z } from "zod"
 
 const UpdateSchema = z.object({
-  action: z.enum(["suspend", "unsuspend", "set-limits"]),
-  suspendedReason: z.string().max(500).optional(),
-  maxUsers:    z.number().int().positive().nullable().optional(),
-  maxProducts: z.number().int().positive().nullable().optional(),
+  action:             z.enum(["suspend", "unsuspend", "set-limits", "assign-plan"]),
+  suspendedReason:    z.string().max(500).optional(),
+  maxUsers:           z.number().int().positive().nullable().optional(),
+  maxProducts:        z.number().int().positive().nullable().optional(),
+  maxOrders:          z.number().int().positive().nullable().optional(),
+  maxBranches:        z.number().int().positive().nullable().optional(),
+  planId:             z.string().optional().nullable(),
+  subscriptionStatus: z.enum(["TRIAL", "ACTIVE", "SUSPENDED", "EXPIRED", "CANCELLED"]).optional(),
+  trialEndsAt:        z.string().datetime().optional().nullable(),
+  planExpiresAt:      z.string().datetime().optional().nullable(),
 })
 
 // PATCH /api/admin/businesses/[id] — suspend, unsuspend, or set limits
@@ -30,10 +36,15 @@ export async function PATCH(
   const business = await prisma.business.findUnique({ where: { id } })
   if (!business) return NextResponse.json({ error: "Business not found" }, { status: 404 })
 
-  const { action, suspendedReason, maxUsers, maxProducts } = parsed.data
+  const {
+    action, suspendedReason,
+    maxUsers, maxProducts, maxOrders, maxBranches,
+    planId, subscriptionStatus, trialEndsAt, planExpiresAt,
+  } = parsed.data
 
   let updated
   let auditAction: "TENANT_SUSPENDED" | "TENANT_UNSUSPENDED" | "TENANT_PLAN_CHANGED"
+  let auditMeta: Record<string, unknown>
 
   if (action === "suspend") {
     updated = await prisma.business.update({
@@ -45,6 +56,7 @@ export async function PATCH(
       },
     })
     auditAction = "TENANT_SUSPENDED"
+    auditMeta   = { suspendedReason }
   } else if (action === "unsuspend") {
     updated = await prisma.business.update({
       where: { id },
@@ -55,15 +67,32 @@ export async function PATCH(
       },
     })
     auditAction = "TENANT_UNSUSPENDED"
+    auditMeta   = {}
+  } else if (action === "assign-plan") {
+    updated = await prisma.business.update({
+      where: { id },
+      data: {
+        planId:             planId             ?? null,
+        subscriptionStatus: subscriptionStatus ?? "ACTIVE",
+        trialEndsAt:        trialEndsAt  ? new Date(trialEndsAt)  : null,
+        planExpiresAt:      planExpiresAt ? new Date(planExpiresAt) : null,
+      },
+    })
+    auditAction = "TENANT_PLAN_CHANGED"
+    auditMeta   = { planId, subscriptionStatus, trialEndsAt, planExpiresAt }
   } else {
+    // set-limits
     updated = await prisma.business.update({
       where: { id },
       data: {
         maxUsers:    maxUsers    ?? null,
         maxProducts: maxProducts ?? null,
+        maxOrders:   maxOrders   ?? null,
+        maxBranches: maxBranches ?? null,
       },
     })
     auditAction = "TENANT_PLAN_CHANGED"
+    auditMeta   = { maxUsers, maxProducts, maxOrders, maxBranches }
   }
 
   const platformUserId = await getPlatformUserId()
@@ -72,7 +101,7 @@ export async function PATCH(
     action:     auditAction,
     entityType: "Business",
     entityId:   id,
-    metadata:   { action, suspendedReason, maxUsers, maxProducts },
+    metadata:   { action, ...auditMeta },
     ipAddress:  request.headers.get("x-forwarded-for") ?? undefined,
   })
 

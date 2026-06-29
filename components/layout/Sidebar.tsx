@@ -20,6 +20,7 @@ import {
   ShieldCheck,
   GitBranch,
   ArrowLeftRight,
+  CrownIcon,
   X,
 } from "lucide-react"
 
@@ -44,6 +45,7 @@ const NAV_ITEMS: NavItem[] = [
   { key: "stockTransfers", href: "/stock-transfers",  icon: ArrowLeftRight,  ownerOnly: false },
   { key: "staff",          href: "/staff",            icon: UserCog,         ownerOnly: true  },
   { key: "auditLogs",      href: "/audit-logs",       icon: ShieldCheck,     ownerOnly: false },
+  { key: "billing",        href: "/billing",           icon: CrownIcon,       ownerOnly: true  },
   { key: "settings",       href: "/settings",         icon: Settings,        ownerOnly: false },
 ]
 

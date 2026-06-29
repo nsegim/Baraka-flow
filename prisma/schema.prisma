@@ -9,42 +9,79 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
+// ── SUBSCRIPTION PLAN (Global — defined by Super Admin) ──────────────────────
+
+model Plan {
+  id          String   @id @default(cuid())
+  name        String   @unique               // "Free", "Starter", "Pro", "Enterprise"
+  slug        String   @unique               // "free", "starter", "pro", "enterprise"
+  description String?
+  price       Decimal  @default(0) @db.Decimal(10, 2)
+  currency    String   @default("RWF")
+  maxUsers    Int?                            // null = unlimited
+  maxProducts Int?                            // null = unlimited
+  maxOrders   Int?                            // null = unlimited
+  maxBranches Int?                            // null = unlimited
+  features    Json     @default("{}")         // { "advancedReports": true, "apiAccess": false }
+  isActive    Boolean  @default(true)
+  isPublic    Boolean  @default(true)         // false = admin-assigned only
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  businesses  Business[]
+
+  @@index([isActive])
+  @@index([slug])
+}
+
 // ── BUSINESS (Tenant root) ────────────────────────────────────────────────────
 
 model Business {
-  id              String          @id @default(cuid())
-  name            String
-  email           String          @unique
-  phone           String?
-  address         String?
-  currency        String          @default("RWF")
-  language        String          @default("en")   // tenant default: en | fr | rw
-  logoUrl         String?
-  taxRate         Decimal         @default(0.18) @db.Decimal(5, 4)
-  createdAt       DateTime        @default(now())
-  updatedAt       DateTime        @updatedAt
-  maxProducts     Int?
-  maxUsers        Int?
-  status          BusinessStatus  @default(ACTIVE)
-  suspendedAt     DateTime?
-  suspendedReason String?
-  plan            String          @default("starter")
-  planExpiresAt   DateTime?
+  id                  String             @id @default(cuid())
+  name                String
+  email               String             @unique
+  phone               String?
+  address             String?
+  currency            String             @default("RWF")
+  language            String             @default("en")   // tenant default: en | fr | rw
+  logoUrl             String?
+  taxRate             Decimal            @default(0.18) @db.Decimal(5, 4)
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+  // ── Subscription ──────────────────────────────────────────────────────────
+  planId              String?
+  plan                String             @default("starter")  // legacy display field
+  subscriptionStatus  SubscriptionStatus @default(TRIAL)
+  trialEndsAt         DateTime?
+  planExpiresAt       DateTime?          // kept for backward compat
+  // ── Per-business limits (override plan limits when set) ───────────────────
+  maxUsers            Int?
+  maxProducts         Int?
+  maxOrders           Int?
+  maxBranches         Int?
+  // ── Account status ────────────────────────────────────────────────────────
+  status              BusinessStatus     @default(ACTIVE)
+  suspendedAt         DateTime?
+  suspendedReason     String?
 
-  auditLogs        AuditLog[]
-  branches         Branch[]
-  categories       Category[]
-  creditNotes      CreditNote[]
-  customers        Customer[]
-  expenses         Expense[]
-  notifications    Notification[]
-  orders           Order[]
-  products         Product[]
-  purchaseOrders   PurchaseOrder[]
-  supplierPayments SupplierPayment[]
-  suppliers        Supplier[]
-  supportSessions  SupportSession[]
-  users            User[]
+  subscriptionPlan   Plan?              @relation(fields: [planId], references: [id], onDelete: SetNull)
+
+  auditLogs          AuditLog[]
+  attributeTemplates AttributeTemplate[]
+  branches           Branch[]
+  categories         Category[]
+  creditNotes        CreditNote[]
+  customers          Customer[]
+  expenses           Expense[]
+  notifications      Notification[]
+  orders             Order[]
+  products           Product[]
+  purchaseOrders     PurchaseOrder[]
+  supplierPayments   SupplierPayment[]
+  suppliers          Supplier[]
+  supportSessions    SupportSession[]
+  users              User[]
 }
 
 // ── BRANCH ────────────────────────────────────────────────────────────────────
@@ -206,8 +243,9 @@ model Category {
   updatedAt  DateTime  @updatedAt
   businessId String
 
-  business Business  @relation(fields: [businessId], references: [id])
-  products Product[]
+  business           Business            @relation(fields: [businessId], references: [id])
+  products           Product[]
+  attributeTemplates AttributeTemplate[]
 
   @@index([businessId])
 }
@@ -245,6 +283,7 @@ model Product {
   unit        String   @default("piece")
   imageUrl    String?
   origin      String?
+  attributes  Json?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   businessId  String
@@ -252,13 +291,14 @@ model Product {
   supplierId  String?
 
   orderItems         OrderItem[]
-  business           Business            @relation(fields: [businessId], references: [id])
-  category           Category?           @relation(fields: [categoryId], references: [id])
-  supplier           Supplier?           @relation(fields: [supplierId], references: [id])
+  business           Business                @relation(fields: [businessId], references: [id])
+  category           Category?               @relation(fields: [categoryId], references: [id])
+  supplier           Supplier?               @relation(fields: [supplierId], references: [id])
   purchaseOrderItems PurchaseOrderItem[]
   stockMovements     StockMovement[]
   inventory          BranchInventory[]
   stockTransfers     StockTransfer[]
+  attributeValues    ProductAttributeValue[]
 
   @@index([businessId])
   @@index([businessId, categoryId])
@@ -566,6 +606,14 @@ enum BusinessStatus {
   SUSPENDED
 }
 
+enum SubscriptionStatus {
+  TRIAL
+  ACTIVE
+  SUSPENDED
+  EXPIRED
+  CANCELLED
+}
+
 enum Role {
   OWNER
   MANAGER
@@ -671,6 +719,62 @@ enum AuditAction {
   // Auth
   PASSWORD_RESET_REQUESTED
   PASSWORD_RESET_COMPLETED
+  // Product attributes
+  ATTRIBUTE_TEMPLATE_CREATED
+  ATTRIBUTE_TEMPLATE_UPDATED
+  // Subscription
+  SUBSCRIPTION_CHANGED
+}
+
+// ── FLEXIBLE PRODUCT ATTRIBUTES ───────────────────────────────────────────────
+
+// Tenant-defined attribute schema (what attributes exist for products in this business/category)
+model AttributeTemplate {
+  id         String        @id @default(cuid())
+  name       String                              // Display name: "Color", "Storage", "Weight"
+  key        String                              // Machine key: "color", "storage_gb", "weight_kg"
+  type       AttributeType @default(TEXT)
+  options    Json?                               // For SELECT type: ["Red", "Blue", "Green"]
+  unit       String?                             // Display unit: "kg", "cm", "GB"
+  isRequired Boolean       @default(false)
+  sortOrder  Int           @default(0)
+  isActive   Boolean       @default(true)
+  businessId String
+  categoryId String?                             // null = applies to all products in this business
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  business        Business                @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  category        Category?               @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  attributeValues ProductAttributeValue[]
+
+  @@index([businessId])
+  @@index([businessId, categoryId])
+  @@index([businessId, isActive])
+}
+
+// Per-product attribute values (what value does this product have for each template)
+model ProductAttributeValue {
+  id                  String @id @default(cuid())
+  productId           String
+  attributeTemplateId String
+  value               String @db.VarChar(1000)
+
+  product           Product           @relation(fields: [productId], references: [id], onDelete: Cascade)
+  attributeTemplate AttributeTemplate @relation(fields: [attributeTemplateId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, attributeTemplateId])
+  @@index([productId])
+  @@index([attributeTemplateId])
+  @@index([attributeTemplateId, value])
+}
+
+enum AttributeType {
+  TEXT
+  NUMBER
+  BOOLEAN
+  SELECT
 }
 
 // ── PLATFORM LAYER ────────────────────────────────────────────────────────────
@@ -771,4 +875,7 @@ enum PlatformAction {
   SUPPORT_SESSION_OPENED
   SUPPORT_SESSION_ENDED
   SUPPORT_SESSION_REVOKED
+  PLAN_CREATED
+  PLAN_UPDATED
+  PLAN_DELETED
 }

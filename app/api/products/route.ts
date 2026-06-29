@@ -5,6 +5,7 @@ import { serialize } from "@/lib/serialize"
 import { createAuditLog } from "@/lib/audit"
 import { getIp } from "@/lib/rate-limit"
 import { requireBranchContext, isBranchContext, getWriteBranchId } from "@/lib/branch-auth"
+import { checkPlanLimit } from "@/lib/plan-limits"
 
 // GET /api/products
 // Supports ?all=true (no pagination — for dropdowns)
@@ -18,12 +19,26 @@ export async function GET(request: NextRequest) {
     if (!isBranchContext(ctx)) return ctx
 
     const { searchParams } = request.nextUrl
-    const fetchAll = searchParams.get("all") === "true"
-    const page     = Math.max(1, parseInt(searchParams.get("page")  ?? "1"))
-    const limit    = Math.min(100, Math.max(1, parseInt(searchParams.get("limit") ?? "50")))
-    const skip     = (page - 1) * limit
+    const fetchAll   = searchParams.get("all") === "true"
+    const page       = Math.max(1, parseInt(searchParams.get("page")  ?? "1"))
+    const limit      = Math.min(100, Math.max(1, parseInt(searchParams.get("limit") ?? "50")))
+    const skip       = (page - 1) * limit
+    const search     = searchParams.get("search")?.trim()
+    const categoryId = searchParams.get("categoryId")
+    const supplierId = searchParams.get("supplierId")
 
-    const where = { businessId: ctx.session.user.businessId }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const where: any = { businessId: ctx.session.user.businessId }
+    if (categoryId) where.categoryId = categoryId
+    if (supplierId) where.supplierId = supplierId
+    if (search) {
+      where.OR = [
+        { name:        { contains: search, mode: "insensitive" } },
+        { sku:         { contains: search, mode: "insensitive" } },
+        { origin:      { contains: search, mode: "insensitive" } },
+        { description: { contains: search, mode: "insensitive" } },
+      ]
+    }
 
     // Build inventory include: scoped to branch when context has one, else aggregate
     const inventoryFilter = ctx.branchId
@@ -34,6 +49,15 @@ export async function GET(request: NextRequest) {
       category:  true,
       supplier:  true,
       inventory: inventoryFilter,
+      attributeValues: {
+        where:   { attributeTemplate: { isActive: true } },
+        include: {
+          attributeTemplate: {
+            select: { id: true, name: true, key: true, type: true, unit: true, sortOrder: true },
+          },
+        },
+        orderBy: { attributeTemplate: { sortOrder: "asc" as const } },
+      },
     }
 
     if (fetchAll) {
@@ -98,19 +122,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Select a branch before adding products" }, { status: 400 })
     }
 
-    // Plan limit
-    const bizLimits = await prisma.business.findUnique({
-      where:  { id: ctx.session.user.businessId },
-      select: { maxProducts: true },
-    })
-    if (bizLimits?.maxProducts !== null && bizLimits?.maxProducts !== undefined) {
-      const count = await prisma.product.count({ where: { businessId: ctx.session.user.businessId } })
-      if (count >= bizLimits.maxProducts) {
-        return NextResponse.json(
-          { error: `Product limit reached. Your plan allows a maximum of ${bizLimits.maxProducts} products.` },
-          { status: 403 }
-        )
-      }
+    // Plan enforcement
+    const limitCheck = await checkPlanLimit(ctx.session.user.businessId, "products")
+    if (!limitCheck.allowed) {
+      return NextResponse.json({ error: limitCheck.error }, { status: 403 })
     }
 
     const body   = await request.json()
@@ -122,7 +137,19 @@ export async function POST(request: NextRequest) {
     const {
       name, description, sku, price, costPrice,
       stock, minStock, unit, origin, categoryId, supplierId,
+      attributes, attributeValues,
     } = parsed.data
+
+    // Validate attributeValues templateIds belong to this business before entering transaction
+    let validTemplateIds = new Set<string>()
+    if (attributeValues && attributeValues.length > 0) {
+      const templateIds = attributeValues.map(av => av.templateId)
+      const validTemplates = await prisma.attributeTemplate.findMany({
+        where:  { id: { in: templateIds }, businessId: ctx.session.user.businessId, isActive: true },
+        select: { id: true },
+      })
+      validTemplateIds = new Set(validTemplates.map(t => t.id))
+    }
 
     const product = await prisma.$transaction(async (tx) => {
       const newProduct = await tx.product.create({
@@ -134,6 +161,7 @@ export async function POST(request: NextRequest) {
           costPrice:   costPrice   ?? null,
           unit,
           origin:      origin      ?? null,
+          attributes:  attributes ? (attributes as object) : undefined,
           categoryId:  categoryId  ?? null,
           supplierId:  supplierId  ?? null,
           businessId:  ctx.session.user.businessId,
@@ -167,6 +195,21 @@ export async function POST(request: NextRequest) {
             branchId,
             userId:    ctx.session.user.id,
           },
+        })
+      }
+
+      // Save structured attribute values (only for validated templates)
+      const validValues = (attributeValues ?? []).filter(
+        av => validTemplateIds.has(av.templateId) && av.value !== "",
+      )
+      if (validValues.length > 0) {
+        await tx.productAttributeValue.createMany({
+          data: validValues.map(av => ({
+            productId:           newProduct.id,
+            attributeTemplateId: av.templateId,
+            value:               av.value,
+          })),
+          skipDuplicates: true,
         })
       }
 

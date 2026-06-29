@@ -1,8 +1,8 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useMemo } from "react"
 import { useSession } from "next-auth/react"
-import { ArrowLeftRight, Plus, X, CheckCircle, Clock, XCircle, Truck } from "lucide-react"
+import { ArrowLeftRight, Plus, X, CheckCircle, Clock, XCircle, Truck, Search } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useTranslations } from "next-intl"
 
@@ -78,6 +78,21 @@ export default function StockTransfersPage() {
     fetch("/api/products?all=true").then(r => r.ok ? r.json() : []).then(d => setProducts(Array.isArray(d) ? d : []))
   }, [isOwner])
 
+  const [filterStatus, setFilterStatus] = useState("")
+  const [filterBranch, setFilterBranch] = useState("")
+  const [filterSearch, setFilterSearch] = useState("")
+
+  const visibleTransfers = useMemo(() => {
+    let list = transfers
+    if (filterStatus) list = list.filter(t => t.status === filterStatus)
+    if (filterBranch) list = list.filter(t => t.fromBranch.id === filterBranch || t.toBranch.id === filterBranch)
+    if (filterSearch.trim()) {
+      const q = filterSearch.toLowerCase()
+      list = list.filter(t => t.product.name.toLowerCase().includes(q))
+    }
+    return list
+  }, [transfers, filterStatus, filterBranch, filterSearch])
+
   const handleCreate = async () => {
     setSaving(true); setError("")
     const res = await fetch("/api/stock-transfers", {
@@ -127,6 +142,38 @@ export default function StockTransfersPage() {
         )}
       </div>
 
+      {/* ── Filter Bar ── */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-2 bg-[var(--card)] rounded-lg px-3 py-2 flex-1 min-w-[160px] border border-[var(--border)]">
+          <Search size={14} className="text-[var(--muted)] shrink-0" />
+          <input type="text" placeholder="Search product…" value={filterSearch}
+            onChange={e => setFilterSearch(e.target.value)}
+            className="bg-transparent text-sm outline-none text-[var(--foreground)] w-full placeholder:text-[var(--muted)]" />
+          {filterSearch && <button onClick={() => setFilterSearch("")}><X size={13} className="text-[var(--muted)]" /></button>}
+        </div>
+        <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)}
+          className="px-3 py-2 rounded-lg border border-[var(--border)] bg-[var(--card)] text-sm text-[var(--foreground)] outline-none focus:border-baraka-primary cursor-pointer">
+          <option value="">Status — All</option>
+          <option value="PENDING">Pending</option>
+          <option value="APPROVED">Approved</option>
+          <option value="COMPLETED">Completed</option>
+          <option value="REJECTED">Rejected</option>
+        </select>
+        {branches.length > 0 && (
+          <select value={filterBranch} onChange={e => setFilterBranch(e.target.value)}
+            className="px-3 py-2 rounded-lg border border-[var(--border)] bg-[var(--card)] text-sm text-[var(--foreground)] outline-none focus:border-baraka-primary cursor-pointer">
+            <option value="">Branch — All</option>
+            {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+          </select>
+        )}
+        {(filterStatus || filterBranch || filterSearch) && (
+          <button onClick={() => { setFilterStatus(""); setFilterBranch(""); setFilterSearch("") }}
+            className="flex items-center gap-1.5 px-3 py-2 text-sm text-red-500 hover:bg-red-50 rounded-lg border border-red-100 transition-colors">
+            <X size={13} /> Clear
+          </button>
+        )}
+      </div>
+
       {/* Table */}
       <div className="bg-[var(--card)] rounded-xl border border-[var(--border)] overflow-hidden">
         {loading ? (
@@ -158,7 +205,7 @@ export default function StockTransfersPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-[var(--border)]">
-                {transfers.map(tr => (
+                {visibleTransfers.map(tr => (
                   <tr key={tr.id} className="hover:bg-[var(--background)] transition-colors">
                     <td className="px-4 py-3">
                       <p className="font-medium text-[var(--foreground)]">{tr.product.name}</p>

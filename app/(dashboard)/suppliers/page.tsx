@@ -1,9 +1,9 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import {
   Plus, Truck, Mail, Phone, Globe, Pencil, Trash2,
-  Loader2, AlertTriangle, RefreshCw, CreditCard, X, CheckCircle2,
+  Loader2, AlertTriangle, RefreshCw, CreditCard, X, CheckCircle2, Search,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import SupplierModal, { Supplier } from "@/components/suppliers/SupplierModal"
@@ -265,6 +265,24 @@ export default function SuppliersPage() {
     return country ? (flags[country] || "🌍") : "🌍"
   }
 
+  const [filterSearch,  setFilterSearch]  = useState("")
+  const [filterBalance, setFilterBalance] = useState<"" | "owed" | "clear">("")
+
+  const visibleSuppliers = useMemo(() => {
+    let list = suppliers
+    if (filterSearch.trim()) {
+      const q = filterSearch.toLowerCase()
+      list = list.filter(s =>
+        s.name.toLowerCase().includes(q) ||
+        (s.country ?? "").toLowerCase().includes(q) ||
+        (s.email ?? "").toLowerCase().includes(q)
+      )
+    }
+    if (filterBalance === "owed")  list = list.filter(s => Number(s.outstandingBalance) > 0)
+    if (filterBalance === "clear") list = list.filter(s => Number(s.outstandingBalance) === 0)
+    return list
+  }, [suppliers, filterSearch, filterBalance])
+
   const totalOwed = suppliers.reduce((s, sup) => s + Number(sup.outstandingBalance), 0)
 
   return (
@@ -291,6 +309,31 @@ export default function SuppliersPage() {
           {t("addSupplier")}
         </Button>
       </div>
+
+      {/* ── FILTER BAR ── */}
+      {!isLoading && !error && suppliers.length > 0 && (
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-2 bg-[var(--card)] rounded-lg px-3 py-2 flex-1 min-w-[180px] border border-[var(--border)]">
+            <Search size={14} className="text-[var(--muted)] shrink-0" />
+            <input type="text" placeholder="Search supplier, country…" value={filterSearch}
+              onChange={e => setFilterSearch(e.target.value)}
+              className="bg-transparent text-sm outline-none text-[var(--foreground)] w-full placeholder:text-[var(--muted)]" />
+            {filterSearch && <button onClick={() => setFilterSearch("")}><X size={13} className="text-[var(--muted)]" /></button>}
+          </div>
+          <select value={filterBalance} onChange={e => setFilterBalance(e.target.value as typeof filterBalance)}
+            className="px-3 py-2 rounded-lg border border-[var(--border)] bg-[var(--card)] text-sm text-[var(--foreground)] outline-none focus:border-baraka-primary cursor-pointer">
+            <option value="">Balance — All</option>
+            <option value="owed">Has Outstanding Balance</option>
+            <option value="clear">Fully Paid</option>
+          </select>
+          {(filterSearch || filterBalance) && (
+            <button onClick={() => { setFilterSearch(""); setFilterBalance("") }}
+              className="flex items-center gap-1.5 px-3 py-2 text-sm text-red-500 hover:bg-red-50 rounded-lg border border-red-100 transition-colors">
+              <X size={13} /> Clear
+            </button>
+          )}
+        </div>
+      )}
 
       {/* ── LOADING ── */}
       {isLoading && (
@@ -330,7 +373,7 @@ export default function SuppliersPage() {
       {/* ── SUPPLIERS GRID ── */}
       {!isLoading && !error && suppliers.length > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {suppliers.map(supplier => (
+          {visibleSuppliers.map(supplier => (
             <div
               key={supplier.id}
               className="bg-[var(--card)] rounded-xl border border-[var(--border)] shadow-sm hover:shadow-md transition-shadow p-5 group"

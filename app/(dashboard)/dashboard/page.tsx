@@ -6,6 +6,7 @@ import { useTranslations } from "next-intl"
 import StatCard from "@/components/dashboard/StatCard"
 import RecentOrders from "@/components/dashboard/RecentOrders"
 import LowStockAlert from "@/components/dashboard/LowStockAlert"
+import PlanUsageWidget from "@/components/dashboard/PlanUsageWidget"
 
 interface DashboardData {
   stats: {
@@ -210,9 +211,10 @@ export default function DashboardPage() {
       </div>
 
       {/* ── BOTTOM ROW ── */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <RecentOrders orders={recentOrdersMapped} />
-        <LowStockAlert items={lowStockMapped} />
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-1"><RecentOrders orders={recentOrdersMapped} /></div>
+        <div className="lg:col-span-1"><LowStockAlert items={lowStockMapped} /></div>
+        <div className="lg:col-span-1"><PlanUsageWidget /></div>
       </div>
 
     </div>

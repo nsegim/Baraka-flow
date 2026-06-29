@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef, useCallback } from "react"
-import { Plus, Trash2, Tag, Loader2, Pencil, Check, X, Building2, Users, ShieldCheck, Globe, History, Clock, Ban, CheckCircle, XCircle } from "lucide-react"
+import { Plus, Trash2, Tag, Loader2, Pencil, Check, X, Building2, Users, ShieldCheck, Globe, History, Clock, Ban, CheckCircle, XCircle, Sliders, ToggleLeft, ToggleRight, ChevronDown, ChevronUp } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useSession } from "next-auth/react"
 import { useTranslations } from "next-intl"
@@ -21,7 +21,21 @@ interface StaffUser {
   role: "OWNER" | "MANAGER" | "STAFF"; isActive: boolean; createdAt: string
 }
 
-type Tab = "business" | "staff" | "categories" | "language" | "access-history"
+type Tab = "business" | "staff" | "categories" | "language" | "access-history" | "attributes"
+
+interface AttrTemplate {
+  id:         string
+  name:       string
+  key:        string
+  type:       "TEXT" | "NUMBER" | "BOOLEAN" | "SELECT"
+  options:    string[] | null
+  unit:       string | null
+  isRequired: boolean
+  sortOrder:  number
+  isActive:   boolean
+  categoryId: string | null
+  category:   { id: string; name: string } | null
+}
 
 const ROLE_COLORS = {
   OWNER:   "bg-baraka-primary/10 text-baraka-primary",
@@ -696,6 +710,488 @@ function AccessHistoryTab() {
   )
 }
 
+// ── Attributes Tab ────────────────────────────────────────────────────────────
+const TYPE_LABELS: Record<string, string> = {
+  TEXT:    "Text",
+  NUMBER:  "Number",
+  BOOLEAN: "Toggle",
+  SELECT:  "Dropdown",
+}
+const TYPE_COLORS: Record<string, string> = {
+  TEXT:    "bg-gray-100 text-gray-600",
+  NUMBER:  "bg-blue-100 text-blue-700",
+  BOOLEAN: "bg-purple-100 text-purple-700",
+  SELECT:  "bg-amber-100 text-amber-700",
+}
+
+function AttributesTab() {
+  const t      = useTranslations("settings")
+  const { data: session } = useSession()
+  const canEdit = ["OWNER", "MANAGER"].includes(session?.user?.role ?? "")
+
+  const [templates,   setTemplates]   = useState<AttrTemplate[]>([])
+  const [categories,  setCategories]  = useState<Category[]>([])
+  const [isLoading,   setIsLoading]   = useState(true)
+  const [showForm,    setShowForm]    = useState(false)
+  const [editingId,   setEditingId]   = useState<string | null>(null)
+  const [isSaving,    setIsSaving]    = useState(false)
+  const [formError,   setFormError]   = useState("")
+
+  // Form fields
+  const [fName,       setFName]       = useState("")
+  const [fKey,        setFKey]        = useState("")
+  const [fType,       setFType]       = useState<"TEXT"|"NUMBER"|"BOOLEAN"|"SELECT">("TEXT")
+  const [fOptions,    setFOptions]    = useState("")  // comma-separated raw input
+  const [fUnit,       setFUnit]       = useState("")
+  const [fRequired,   setFRequired]   = useState(false)
+  const [fOrder,      setFOrder]      = useState("0")
+  const [fCategoryId, setFCategoryId] = useState("")
+
+  const inputClass = "w-full px-3 py-2 rounded-lg border border-[var(--border)] bg-[var(--background)] text-[var(--foreground)] text-sm outline-none focus:border-baraka-primary focus:ring-2 focus:ring-baraka-primary/20 transition-colors"
+
+  async function fetchTemplates() {
+    setIsLoading(true)
+    try {
+      const res = await fetch("/api/attribute-templates?all=true")
+      const data = await res.json()
+      if (Array.isArray(data)) setTemplates(data)
+    } catch {}
+    setIsLoading(false)
+  }
+
+  useEffect(() => {
+    fetchTemplates()
+    fetch("/api/categories").then(r => r.json()).then(d => { if (Array.isArray(d)) setCategories(d) }).catch(() => {})
+  }, [])
+
+  function handleNameChange(val: string) {
+    setFName(val)
+    if (!editingId) {
+      // Auto-generate machine key from name: "Color (hex)" → "color_hex"
+      setFKey(
+        val.toLowerCase()
+          .replace(/[()]/g, "")
+          .trim()
+          .replace(/[^a-z0-9]+/g, "_")
+          .replace(/^_|_$/g, ""),
+      )
+    }
+  }
+
+  function openCreate() {
+    setFName(""); setFKey(""); setFType("TEXT"); setFOptions(""); setFUnit("")
+    setFRequired(false); setFOrder("0"); setFCategoryId("")
+    setFormError(""); setEditingId(null); setShowForm(true)
+  }
+
+  function openEdit(tmpl: AttrTemplate) {
+    setFName(tmpl.name); setFKey(tmpl.key); setFType(tmpl.type)
+    setFOptions(tmpl.options?.join(", ") ?? ""); setFUnit(tmpl.unit ?? "")
+    setFRequired(tmpl.isRequired); setFOrder(String(tmpl.sortOrder))
+    setFCategoryId(tmpl.categoryId ?? "")
+    setFormError(""); setEditingId(tmpl.id); setShowForm(true)
+  }
+
+  function closeForm() {
+    setShowForm(false); setEditingId(null); setFormError("")
+  }
+
+  async function handleSubmit(e: React.SyntheticEvent) {
+    e.preventDefault()
+    setFormError("")
+    if (!fName.trim() || !fKey.trim()) { setFormError("Name and key are required"); return }
+
+    const options = fType === "SELECT"
+      ? fOptions.split(",").map(o => o.trim()).filter(Boolean)
+      : undefined
+
+    if (fType === "SELECT" && (!options || options.length < 2)) {
+      setFormError("Dropdown type requires at least 2 options (comma-separated)")
+      return
+    }
+
+    const payload = {
+      name:       fName.trim(),
+      key:        fKey.trim(),
+      type:       fType,
+      options:    options ?? null,
+      unit:       fUnit.trim() || null,
+      isRequired: fRequired,
+      sortOrder:  parseInt(fOrder) || 0,
+      categoryId: fCategoryId || null,
+    }
+
+    setIsSaving(true)
+    try {
+      const url    = editingId ? `/api/attribute-templates/${editingId}` : `/api/attribute-templates`
+      const method = editingId ? "PATCH" : "POST"
+      const res    = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify(payload),
+      })
+      const data = await res.json()
+      if (!res.ok) { setFormError(data.error || "Failed to save"); setIsSaving(false); return }
+      closeForm()
+      fetchTemplates()
+    } catch { setFormError("Something went wrong") }
+    setIsSaving(false)
+  }
+
+  async function handleToggle(tmpl: AttrTemplate) {
+    await fetch(`/api/attribute-templates/${tmpl.id}`, {
+      method:  "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ isActive: !tmpl.isActive }),
+    })
+    fetchTemplates()
+  }
+
+  async function handleDelete(tmpl: AttrTemplate) {
+    if (!confirm(t("attrDeleteConfirm"))) return
+    await fetch(`/api/attribute-templates/${tmpl.id}`, { method: "DELETE" })
+    fetchTemplates()
+  }
+
+  const globalTemplates   = templates.filter(t => !t.categoryId)
+  const categoryTemplates = templates.filter(t => !!t.categoryId)
+
+  // Group category-scoped templates by category name
+  const byCategory = categoryTemplates.reduce<Record<string, AttrTemplate[]>>((acc, tmpl) => {
+    const key = tmpl.category?.name ?? tmpl.categoryId ?? "Unknown"
+    ;(acc[key] ??= []).push(tmpl)
+    return acc
+  }, {})
+
+  return (
+    <div className="space-y-5">
+      {/* Header */}
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="font-semibold text-[var(--foreground)]">{t("attributesTab")}</h3>
+          <p className="text-sm text-[var(--muted)] mt-0.5">{t("attributesSubtitle")}</p>
+        </div>
+        {canEdit && (
+          <Button
+            onClick={showForm && !editingId ? closeForm : openCreate}
+            className="flex items-center gap-1.5 px-4 py-2 bg-baraka-primary text-white text-sm rounded-lg hover:bg-baraka-dark transition-colors shrink-0"
+          >
+            {showForm && !editingId ? <X size={14} /> : <Plus size={14} />}
+            {showForm && !editingId ? t("attrCancel") : t("newAttribute")}
+          </Button>
+        )}
+      </div>
+
+      {/* ── Create / Edit form ── */}
+      {showForm && (
+        <div className="rounded-xl border-2 border-baraka-primary/30 bg-baraka-primary/5 p-5 space-y-4">
+          <h4 className="text-sm font-semibold text-baraka-primary">
+            {editingId ? t("attrSaveEdit") : t("attrSaveNew")}
+          </h4>
+
+          {formError && (
+            <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-red-600 text-sm">{formError}</div>
+          )}
+
+          <form onSubmit={handleSubmit} className="space-y-4">
+            {/* Name + Key */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-[var(--muted)] mb-1">{t("attrName")} *</label>
+                <input
+                  type="text"
+                  value={fName}
+                  onChange={e => handleNameChange(e.target.value)}
+                  placeholder="e.g. Color"
+                  className={inputClass}
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-[var(--muted)] mb-1">
+                  {t("attrKey")} *
+                  <span className="ml-1 font-normal text-baraka-sage">(machine-readable)</span>
+                </label>
+                <input
+                  type="text"
+                  value={fKey}
+                  onChange={e => setFKey(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ""))}
+                  placeholder="e.g. color"
+                  className={inputClass}
+                  required
+                  disabled={!!editingId}
+                />
+              </div>
+            </div>
+
+            {/* Type + Unit */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-[var(--muted)] mb-1">{t("attrType")}</label>
+                <select
+                  value={fType}
+                  onChange={e => { setFType(e.target.value as typeof fType); setFOptions("") }}
+                  className={inputClass}
+                >
+                  <option value="TEXT">Text — free input</option>
+                  <option value="NUMBER">Number — numeric value</option>
+                  <option value="BOOLEAN">Toggle — Yes / No</option>
+                  <option value="SELECT">Dropdown — fixed choices</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-[var(--muted)] mb-1">
+                  {t("attrUnit")}
+                  <span className="ml-1 font-normal text-baraka-sage">(optional)</span>
+                </label>
+                <input
+                  type="text"
+                  value={fUnit}
+                  onChange={e => setFUnit(e.target.value)}
+                  placeholder="e.g. kg, cm, GB"
+                  className={inputClass}
+                />
+              </div>
+            </div>
+
+            {/* Options — only for SELECT */}
+            {fType === "SELECT" && (
+              <div>
+                <label className="block text-xs font-medium text-[var(--muted)] mb-1">{t("attrOptions")} *</label>
+                <input
+                  type="text"
+                  value={fOptions}
+                  onChange={e => setFOptions(e.target.value)}
+                  placeholder="e.g. Red, Blue, Black, White"
+                  className={inputClass}
+                  required
+                />
+                {fOptions && (
+                  <div className="flex flex-wrap gap-1.5 mt-2">
+                    {fOptions.split(",").map(o => o.trim()).filter(Boolean).map(opt => (
+                      <span key={opt} className="px-2 py-0.5 bg-amber-100 text-amber-700 text-xs rounded-full">{opt}</span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Scope + Required + Order */}
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-[var(--muted)] mb-1">{t("attrCategory")}</label>
+                <select
+                  value={fCategoryId}
+                  onChange={e => setFCategoryId(e.target.value)}
+                  className={inputClass}
+                >
+                  <option value="">{t("attrScopeGlobal")}</option>
+                  {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-[var(--muted)] mb-1">{t("attrSortOrder")}</label>
+                <input
+                  type="number"
+                  value={fOrder}
+                  onChange={e => setFOrder(e.target.value)}
+                  min="0"
+                  className={inputClass}
+                />
+              </div>
+              <div className="flex flex-col justify-end">
+                <label className="block text-xs font-medium text-[var(--muted)] mb-1">{t("attrRequired")}</label>
+                <button
+                  type="button"
+                  onClick={() => setFRequired(r => !r)}
+                  className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium transition-colors ${
+                    fRequired
+                      ? "border-baraka-primary/40 bg-baraka-primary/10 text-baraka-primary"
+                      : "border-[var(--border)] bg-[var(--background)] text-[var(--muted)]"
+                  }`}
+                >
+                  {fRequired ? <ToggleRight size={16} /> : <ToggleLeft size={16} />}
+                  {fRequired ? "Yes" : "No"}
+                </button>
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="flex gap-2 pt-1">
+              <Button
+                type="submit"
+                disabled={isSaving}
+                className="px-5 py-2 bg-baraka-primary text-white text-sm rounded-lg hover:bg-baraka-dark transition-colors disabled:opacity-50"
+              >
+                {isSaving
+                  ? <span className="flex items-center gap-1.5"><Loader2 size={14} className="animate-spin" /> Saving…</span>
+                  : editingId ? t("attrSaveEdit") : t("attrSaveNew")
+                }
+              </Button>
+              <Button
+                type="button"
+                onClick={closeForm}
+                className="px-4 py-2 border border-[var(--border)] text-[var(--muted)] text-sm rounded-lg hover:bg-[var(--background)] transition-colors"
+              >
+                {t("attrCancel")}
+              </Button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* ── Template list ── */}
+      {isLoading ? (
+        <div className="flex items-center justify-center py-12">
+          <Loader2 size={24} className="animate-spin text-baraka-sage" />
+        </div>
+      ) : templates.length === 0 ? (
+        <div className="text-center py-12 text-[var(--muted)]">
+          <Sliders size={32} className="mx-auto mb-3 opacity-30" />
+          <p className="text-sm">{t("noAttributes")}</p>
+        </div>
+      ) : (
+        <div className="space-y-4">
+
+          {/* Global templates */}
+          {globalTemplates.length > 0 && (
+            <TemplateGroup
+              label={t("attrGlobal")}
+              sublabel={t("attrScopeGlobal")}
+              templates={globalTemplates}
+              canEdit={canEdit}
+              onEdit={openEdit}
+              onToggle={handleToggle}
+              onDelete={handleDelete}
+            />
+          )}
+
+          {/* Category-scoped templates */}
+          {Object.entries(byCategory).map(([catName, tmpls]) => (
+            <TemplateGroup
+              key={catName}
+              label={catName}
+              sublabel={`${tmpls.length} attribute${tmpls.length !== 1 ? "s" : ""}`}
+              templates={tmpls}
+              canEdit={canEdit}
+              onEdit={openEdit}
+              onToggle={handleToggle}
+              onDelete={handleDelete}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Template Group ─────────────────────────────────────────────────────────────
+interface TemplateGroupProps {
+  label:     string
+  sublabel:  string
+  templates: AttrTemplate[]
+  canEdit:   boolean
+  onEdit:    (t: AttrTemplate) => void
+  onToggle:  (t: AttrTemplate) => void
+  onDelete:  (t: AttrTemplate) => void
+}
+
+function TemplateGroup({ label, sublabel, templates, canEdit, onEdit, onToggle, onDelete }: TemplateGroupProps) {
+  const [collapsed, setCollapsed] = useState(false)
+
+  return (
+    <div className="rounded-xl border border-[var(--border)] overflow-hidden">
+      {/* Group header */}
+      <button
+        type="button"
+        onClick={() => setCollapsed(c => !c)}
+        className="w-full flex items-center justify-between px-4 py-3 bg-[var(--background)] hover:bg-[var(--card)] transition-colors text-left"
+      >
+        <div className="flex items-center gap-2">
+          <Tag size={14} className="text-baraka-primary" />
+          <span className="text-sm font-semibold text-[var(--foreground)]">{label}</span>
+          <span className="text-xs text-[var(--muted)]">— {sublabel}</span>
+        </div>
+        {collapsed ? <ChevronDown size={14} className="text-[var(--muted)]" /> : <ChevronUp size={14} className="text-[var(--muted)]" />}
+      </button>
+
+      {!collapsed && (
+        <div className="divide-y divide-[var(--border)]">
+          {templates.map(tmpl => (
+            <div
+              key={tmpl.id}
+              className={`flex items-center gap-3 px-4 py-3 ${!tmpl.isActive ? "opacity-50" : ""}`}
+            >
+              {/* Type badge */}
+              <span className={`shrink-0 px-2 py-0.5 rounded-full text-xs font-medium ${TYPE_COLORS[tmpl.type]}`}>
+                {TYPE_LABELS[tmpl.type]}
+              </span>
+
+              {/* Name + key + meta */}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-sm font-medium text-[var(--foreground)]">{tmpl.name}</span>
+                  {tmpl.unit && (
+                    <span className="text-xs text-baraka-sage">({tmpl.unit})</span>
+                  )}
+                  {tmpl.isRequired && (
+                    <span className="text-xs px-1.5 py-0.5 bg-red-50 text-red-500 rounded-full">Required</span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 mt-0.5">
+                  <code className="text-xs text-baraka-sage font-mono">{tmpl.key}</code>
+                  {tmpl.type === "SELECT" && tmpl.options && (
+                    <span className="text-xs text-[var(--muted)] truncate">
+                      {tmpl.options.join(", ")}
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Actions */}
+              {canEdit && (
+                <div className="flex items-center gap-1 shrink-0">
+                  {/* Active toggle */}
+                  <button
+                    type="button"
+                    onClick={() => onToggle(tmpl)}
+                    title={tmpl.isActive ? "Deactivate" : "Activate"}
+                    className={`p-1.5 rounded-lg transition-colors ${
+                      tmpl.isActive
+                        ? "text-green-600 hover:bg-green-50"
+                        : "text-[var(--muted)] hover:bg-[var(--background)]"
+                    }`}
+                  >
+                    {tmpl.isActive ? <ToggleRight size={16} /> : <ToggleLeft size={16} />}
+                  </button>
+
+                  {/* Edit */}
+                  <button
+                    type="button"
+                    onClick={() => onEdit(tmpl)}
+                    className="p-1.5 rounded-lg text-[var(--muted)] hover:text-baraka-primary hover:bg-baraka-primary/10 transition-colors"
+                  >
+                    <Pencil size={14} />
+                  </button>
+
+                  {/* Delete */}
+                  <button
+                    type="button"
+                    onClick={() => onDelete(tmpl)}
+                    className="p-1.5 rounded-lg text-[var(--muted)] hover:text-red-500 hover:bg-red-50 transition-colors"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 export default function SettingsPage() {
   const t = useTranslations("settings")
@@ -707,6 +1203,7 @@ export default function SettingsPage() {
     { id: "categories",      label: t("categories"),        icon: Tag       },
     { id: "language",        label: t("languageTab"),       icon: Globe     },
     { id: "access-history",  label: t("accessHistoryTab"),  icon: History   },
+    { id: "attributes",      label: t("attributesTab"),     icon: Sliders   },
   ]
 
   return (
@@ -744,6 +1241,7 @@ export default function SettingsPage() {
         {activeTab === "categories"      && <CategoriesTab />}
         {activeTab === "language"        && <LanguageTab />}
         {activeTab === "access-history"  && <AccessHistoryTab />}
+        {activeTab === "attributes"      && <AttributesTab />}
       </div>
     </div>
   )

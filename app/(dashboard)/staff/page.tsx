@@ -1,10 +1,10 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useMemo } from "react"
 import {
   UserCog, Plus, Loader2, Trash2,
   X, Shield, ShieldCheck, ShieldAlert,
-  ToggleLeft, ToggleRight,
+  ToggleLeft, ToggleRight, Search,
 } from "lucide-react"
 import { useTranslations } from "next-intl"
 
@@ -190,6 +190,22 @@ export default function StaffPage() {
   const activeCount  = staff.filter(u => u.isActive).length
   const managerCount = staff.filter(u => u.role === "MANAGER").length
 
+  const [filterRole,   setFilterRole]   = useState("")
+  const [filterStatus, setFilterStatus] = useState("")
+  const [filterSearch, setFilterSearch] = useState("")
+
+  const visibleStaff = useMemo(() => {
+    let list = staff
+    if (filterRole)   list = list.filter(u => u.role === filterRole)
+    if (filterStatus === "active")   list = list.filter(u => u.isActive)
+    if (filterStatus === "inactive") list = list.filter(u => !u.isActive)
+    if (filterSearch.trim()) {
+      const q = filterSearch.toLowerCase()
+      list = list.filter(u => u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q))
+    }
+    return list
+  }, [staff, filterRole, filterStatus, filterSearch])
+
   return (
     <div className="space-y-6">
 
@@ -245,6 +261,36 @@ export default function StaffPage() {
       </div>
 
       {/* Table */}
+      {/* ── Filter Bar ── */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-2 bg-[var(--card)] rounded-lg px-3 py-2 flex-1 min-w-[160px] border border-[var(--border)]">
+          <Search size={14} className="text-[var(--muted)] shrink-0" />
+          <input type="text" placeholder="Search name or email…" value={filterSearch}
+            onChange={e => setFilterSearch(e.target.value)}
+            className="bg-transparent text-sm outline-none text-[var(--foreground)] w-full placeholder:text-[var(--muted)]" />
+          {filterSearch && <button onClick={() => setFilterSearch("")}><X size={13} className="text-[var(--muted)]" /></button>}
+        </div>
+        <select value={filterRole} onChange={e => setFilterRole(e.target.value)}
+          className="px-3 py-2 rounded-lg border border-[var(--border)] bg-[var(--card)] text-sm text-[var(--foreground)] outline-none focus:border-baraka-primary cursor-pointer">
+          <option value="">Role — All</option>
+          <option value="OWNER">Owner</option>
+          <option value="MANAGER">Manager</option>
+          <option value="STAFF">Staff</option>
+        </select>
+        <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)}
+          className="px-3 py-2 rounded-lg border border-[var(--border)] bg-[var(--card)] text-sm text-[var(--foreground)] outline-none focus:border-baraka-primary cursor-pointer">
+          <option value="">Status — All</option>
+          <option value="active">Active</option>
+          <option value="inactive">Inactive</option>
+        </select>
+        {(filterRole || filterStatus || filterSearch) && (
+          <button onClick={() => { setFilterRole(""); setFilterStatus(""); setFilterSearch("") }}
+            className="flex items-center gap-1.5 px-3 py-2 text-sm text-red-500 hover:bg-red-50 rounded-lg border border-red-100 transition-colors">
+            <X size={13} /> Clear
+          </button>
+        )}
+      </div>
+
       <div className="bg-[var(--card)] rounded-xl border border-[var(--border)] overflow-hidden shadow-sm">
         {loading ? (
           <div className="flex items-center justify-center py-16">
@@ -267,7 +313,7 @@ export default function StaffPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-[var(--border)]">
-              {staff.map(member => {
+              {visibleStaff.map(member => {
                 const Icon = ROLE_ICON[member.role]
                 const isBusy = actionId === member.id
                 return (

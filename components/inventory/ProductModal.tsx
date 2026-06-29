@@ -1,14 +1,26 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
-import { X, Loader2, ImagePlus, Trash2 } from "lucide-react"
+import { X, Loader2, ImagePlus, Trash2, Sparkles } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Product } from "../../app/hooks/useProducts"
+import { Product, ProductInput } from "../../app/hooks/useProducts"
 import Image from "next/image"
+
+interface AttrTemplate {
+  id:         string
+  name:       string
+  key:        string
+  type:       "TEXT" | "NUMBER" | "BOOLEAN" | "SELECT"
+  options:    string[] | null
+  unit:       string | null
+  isRequired: boolean
+  sortOrder:  number
+  categoryId: string | null
+}
 
 interface ProductModalProps {
   onClose:  () => void
-  onSave:   (data: Partial<Product>) => Promise<void>
+  onSave:   (data: ProductInput) => Promise<void>
   product?: Product | null
 }
 
@@ -38,7 +50,7 @@ const inputClass = `
 export default function ProductModal({ onClose, onSave, product }: ProductModalProps) {
   const isEditMode = !!product
 
-  // State initialized from props — reset happens via parent key prop, not useEffect.
+  // ── Core product fields ───────────────────────────────────────────────────
   const [name,        setName]        = useState(product?.name              ?? "")
   const [description, setDescription] = useState(product?.description       ?? "")
   const [sku,         setSku]         = useState(product?.sku               ?? "")
@@ -58,7 +70,7 @@ export default function ProductModal({ onClose, onSave, product }: ProductModalP
   const [categories,  setCategories]  = useState<{ id: string; name: string }[]>([])
   const [suppliers,   setSuppliers]   = useState<{ id: string; name: string }[]>([])
 
-  // Image upload state
+  // ── Image upload state ────────────────────────────────────────────────────
   const fileInputRef   = useRef<HTMLInputElement>(null)
   const [imageFile,    setImageFile]   = useState<File | null>(null)
   const [imagePreview, setImagePreview] = useState<string | null>(null)
@@ -66,13 +78,34 @@ export default function ProductModal({ onClose, onSave, product }: ProductModalP
   const [uploadingImg, setUploadingImg] = useState(false)
   const [imgError,     setImgError]    = useState("")
 
-  // Fetch reference data — this is external-system sync, which is the correct useEffect use
+  // ── Attribute templates + values ─────────────────────────────────────────
+  const [templates,  setTemplates]  = useState<AttrTemplate[]>([])
+  const [attrValues, setAttrValues] = useState<Record<string, string>>(() => {
+    // Lazy initializer — runs once on mount, reads product.attributeValues for edit mode
+    if (!product?.attributeValues?.length) return {}
+    return Object.fromEntries(
+      product.attributeValues.map(av => [av.attributeTemplateId, av.value])
+    )
+  })
+
+  // Fetch categories, suppliers once on mount
   useEffect(() => {
     fetch("/api/categories").then(r => r.json()).then(setCategories).catch(() => {})
     fetch("/api/suppliers").then(r => r.json()).then(setSuppliers).catch(() => {})
   }, [])
 
-  // Revoke blob URL on unmount to avoid memory leaks
+  // Fetch attribute templates whenever category changes
+  useEffect(() => {
+    const url = categoryId
+      ? `/api/attribute-templates?categoryId=${categoryId}`
+      : `/api/attribute-templates`
+    fetch(url)
+      .then(r => r.ok ? r.json() : [])
+      .then(data => { if (Array.isArray(data)) setTemplates(data) })
+      .catch(() => setTemplates([]))
+  }, [categoryId])
+
+  // Revoke blob URL on unmount
   useEffect(() => {
     return () => { if (imagePreview) URL.revokeObjectURL(imagePreview) }
   }, [imagePreview])
@@ -97,10 +130,23 @@ export default function ProductModal({ onClose, onSave, product }: ProductModalP
     if (fileInputRef.current) fileInputRef.current.value = ""
   }
 
+  function setAttr(templateId: string, value: string) {
+    setAttrValues(prev => ({ ...prev, [templateId]: value }))
+  }
+
   async function handleSubmit(e: React.SyntheticEvent) {
     e.preventDefault()
     setError("")
     if (!name || !price) { setError("Product name and price are required"); return }
+
+    // Validate required attributes
+    for (const tmpl of templates) {
+      if (tmpl.isRequired && !attrValues[tmpl.id]) {
+        setError(`"${tmpl.name}" is required`)
+        return
+      }
+    }
+
     setIsLoading(true)
 
     try {
@@ -119,6 +165,11 @@ export default function ProductModal({ onClose, onSave, product }: ProductModalP
         finalImageUrl = null
       }
 
+      // Build structured attribute values for the API
+      const attributeValues = Object.entries(attrValues)
+        .filter(([, v]) => v !== "" && v !== undefined)
+        .map(([templateId, value]) => ({ templateId, value }))
+
       await onSave({
         name, description, sku,
         price:      parseFloat(price),
@@ -129,6 +180,7 @@ export default function ProductModal({ onClose, onSave, product }: ProductModalP
         categoryId: categoryId || undefined,
         supplierId: supplierId || undefined,
         imageUrl:   finalImageUrl ?? undefined,
+        ...(attributeValues.length > 0 ? { attributeValues } : {}),
       })
       onClose()
     } catch (err: unknown) {
@@ -276,17 +328,114 @@ export default function ProductModal({ onClose, onSave, product }: ProductModalP
                 <option value="set">Set</option>
                 <option value="pair">Pair</option>
                 <option value="box">Box</option>
+                <option value="kg">Kilogram (kg)</option>
+                <option value="g">Gram (g)</option>
+                <option value="litre">Litre</option>
+                <option value="metre">Metre</option>
+                <option value="roll">Roll</option>
+                <option value="bag">Bag</option>
+                <option value="bottle">Bottle</option>
+                <option value="can">Can</option>
+                <option value="pack">Pack</option>
+                <option value="unit">Unit</option>
               </select>
             </Field>
           </div>
 
           {/* Category */}
           <Field label="Category">
-            <select value={categoryId} onChange={e => setCategoryId(e.target.value)} className={inputClass}>
+            <select
+              value={categoryId}
+              onChange={e => {
+                setCategoryId(e.target.value)
+                // Clear existing attr values when category changes in create mode
+                // (in edit mode we keep them so edits aren't lost)
+                if (!isEditMode) setAttrValues({})
+              }}
+              className={inputClass}
+            >
               <option value="">— Select category —</option>
               {categories.map(cat => <option key={cat.id} value={cat.id}>{cat.name}</option>)}
             </select>
           </Field>
+
+          {/* ── PRODUCT ATTRIBUTES (dynamic, loaded from AttributeTemplate) ── */}
+          {templates.length > 0 && (
+            <div className="rounded-xl border border-baraka-primary/20 bg-baraka-primary/5 p-4 space-y-3">
+
+              {/* Section header */}
+              <div className="flex items-center gap-2">
+                <Sparkles size={14} className="text-baraka-primary" />
+                <span className="text-xs font-semibold text-baraka-primary uppercase tracking-wide">
+                  Product Attributes
+                </span>
+                {categoryId && (
+                  <span className="ml-auto text-xs text-baraka-sage">
+                    {categories.find(c => c.id === categoryId)?.name}
+                  </span>
+                )}
+              </div>
+
+              {/* One field per template */}
+              {templates.map(tmpl => {
+                const labelText = tmpl.name
+                  + (tmpl.isRequired ? " *" : "")
+                  + (tmpl.unit ? ` (${tmpl.unit})` : "")
+
+                return (
+                  <Field key={tmpl.id} label={labelText}>
+                    {tmpl.type === "SELECT" && tmpl.options ? (
+                      <select
+                        value={attrValues[tmpl.id] ?? ""}
+                        onChange={e => setAttr(tmpl.id, e.target.value)}
+                        className={inputClass}
+                        required={tmpl.isRequired}
+                      >
+                        <option value="">— Select {tmpl.name} —</option>
+                        {tmpl.options.map(opt => (
+                          <option key={opt} value={opt}>{opt}</option>
+                        ))}
+                      </select>
+
+                    ) : tmpl.type === "BOOLEAN" ? (
+                      <div className="flex items-center gap-3 h-10 px-3 rounded-lg border border-baraka-sage/40 bg-baraka-cream/50">
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={attrValues[tmpl.id] === "true"}
+                          onClick={() => setAttr(tmpl.id, attrValues[tmpl.id] === "true" ? "false" : "true")}
+                          className={`relative w-9 h-5 rounded-full transition-colors ${
+                            attrValues[tmpl.id] === "true"
+                              ? "bg-baraka-primary"
+                              : "bg-baraka-sage/40"
+                          }`}
+                        >
+                          <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${
+                            attrValues[tmpl.id] === "true" ? "translate-x-4" : "translate-x-0.5"
+                          }`} />
+                        </button>
+                        <span className="text-sm text-baraka-dark">
+                          {attrValues[tmpl.id] === "true" ? "Yes" : "No"}
+                        </span>
+                      </div>
+
+                    ) : (
+                      <input
+                        type={tmpl.type === "NUMBER" ? "number" : "text"}
+                        value={attrValues[tmpl.id] ?? ""}
+                        onChange={e => setAttr(tmpl.id, e.target.value)}
+                        placeholder={tmpl.unit ? `e.g. 50 ${tmpl.unit}` : `Enter ${tmpl.name.toLowerCase()}`}
+                        className={inputClass}
+                        required={tmpl.isRequired}
+                        min={tmpl.type === "NUMBER" ? "0" : undefined}
+                        step={tmpl.type === "NUMBER" ? "any" : undefined}
+                      />
+                    )}
+                  </Field>
+                )
+              })}
+            </div>
+          )}
 
           {/* Supplier */}
           <Field label="Supplier">

@@ -18,11 +18,14 @@ export async function GET(request: NextRequest) {
     const skip  = (page - 1) * limit
     const month = searchParams.get("month")
 
+    const category = searchParams.get("category")
+
     const where: Record<string, unknown> = buildBranchWhere(ctx)
     if (month) {
       const [year, mon] = month.split("-").map(Number)
       where.date = { gte: new Date(year, mon - 1, 1), lt: new Date(year, mon, 1) }
     }
+    if (category) where.category = category
 
     const [expenses, total] = await prisma.$transaction([
       prisma.expense.findMany({

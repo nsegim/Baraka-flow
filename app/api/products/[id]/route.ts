@@ -33,7 +33,7 @@ export async function PATCH(
     })
     if (!existing) return NextResponse.json({ error: "Product not found" }, { status: 404 })
 
-    // Update catalog fields on Product
+    // Update catalog fields on Product (including the flexible attributes JSON blob)
     const updated = await prisma.product.update({
       where: { id },
       data: {
@@ -46,9 +46,38 @@ export async function PATCH(
         origin:      parsed.data.origin      ?? existing.origin,
         categoryId:  parsed.data.categoryId  ?? existing.categoryId,
         supplierId:  parsed.data.supplierId  ?? existing.supplierId,
+        ...(parsed.data.attributes !== undefined
+          ? { attributes: parsed.data.attributes ? (parsed.data.attributes as object) : undefined }
+          : {}),
       },
       include: { category: true, supplier: true },
     })
+
+    // Upsert / delete structured attribute values when provided
+    if (parsed.data.attributeValues && parsed.data.attributeValues.length > 0) {
+      const templateIds = parsed.data.attributeValues.map(av => av.templateId)
+      const validTemplates = await prisma.attributeTemplate.findMany({
+        where:  { id: { in: templateIds }, businessId: ctx.session.user.businessId, isActive: true },
+        select: { id: true },
+      })
+      const validSet = new Set(validTemplates.map(t => t.id))
+
+      for (const av of parsed.data.attributeValues) {
+        if (!validSet.has(av.templateId)) continue
+        if (av.value === "") {
+          // Empty string = intent to remove this attribute value
+          await prisma.productAttributeValue.deleteMany({
+            where: { productId: id, attributeTemplateId: av.templateId },
+          })
+        } else {
+          await prisma.productAttributeValue.upsert({
+            where:  { productId_attributeTemplateId: { productId: id, attributeTemplateId: av.templateId } },
+            create: { productId: id, attributeTemplateId: av.templateId, value: av.value },
+            update: { value: av.value },
+          })
+        }
+      }
+    }
 
     // Update stock/minStock in BranchInventory when a branch context exists
     if (branchId && (parsed.data.stock !== undefined || parsed.data.minStock !== undefined)) {

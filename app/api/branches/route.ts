@@ -5,6 +5,7 @@ import { CreateBranchSchema } from "@/lib/validators"
 import { serialize } from "@/lib/serialize"
 import { createAuditLog } from "@/lib/audit"
 import { getIp } from "@/lib/rate-limit"
+import { checkPlanLimit } from "@/lib/plan-limits"
 
 // GET /api/branches — list all branches for this business (OWNER only)
 export async function GET() {
@@ -45,6 +46,12 @@ export async function POST(request: NextRequest) {
     const parsed = CreateBranchSchema.safeParse(body)
     if (!parsed.success) {
       return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 })
+    }
+
+    // Plan enforcement
+    const limitCheck = await checkPlanLimit(session.user.businessId, "branches")
+    if (!limitCheck.allowed) {
+      return NextResponse.json({ error: limitCheck.error }, { status: 403 })
     }
 
     // Enforce unique code within this business

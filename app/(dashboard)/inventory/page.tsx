@@ -1,13 +1,13 @@
 "use client"
 
-import { useState, useMemo, useRef } from "react"
+import { useState, useMemo, useRef, useEffect } from "react"
 import {
   Plus, Search, Package,
   AlertTriangle, Pencil, Trash2,
   RefreshCw, BarChart2, Upload, X, CheckCircle2, FileText,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { useProducts, Product } from "../../../app/hooks/useProducts"
+import { useProducts, Product, ProductInput } from "../../../app/hooks/useProducts"
 import ProductModal from "@/components/inventory/ProductModal"
 import DeleteConfirmModal from "@/components/inventory/DeleteConfirmModal"
 import StockAdjustModal from "@/components/inventory/StockAdjustModal"
@@ -51,6 +51,28 @@ export default function InventoryPage() {
   const t       = useTranslations("inventory")
   const tCommon = useTranslations("common")
 
+  // ── Filter state ──────────────────────────────────────────────────────────
+  const [search,         setSearch]         = useState("")
+  const [debouncedSearch, setDebouncedSearch] = useState("")
+  const [filterCategory, setFilterCategory] = useState("")
+  const [filterSupplier, setFilterSupplier] = useState("")
+  const [filterStock,    setFilterStock]    = useState<"" | "in_stock" | "low_stock" | "out_of_stock">("")
+  const [categories,     setCategories]     = useState<{ id: string; name: string }[]>([])
+
+  // Debounce search → server
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 350)
+    return () => clearTimeout(t)
+  }, [search])
+
+  // Load categories for filter dropdown once
+  useEffect(() => {
+    fetch("/api/categories")
+      .then(r => r.json())
+      .then(d => { if (Array.isArray(d)) setCategories(d) })
+      .catch(() => {})
+  }, [])
+
   const {
     products,
     meta,
@@ -61,9 +83,21 @@ export default function InventoryPage() {
     addProduct,
     updateProduct,
     deleteProduct,
-  } = useProducts()
+  } = useProducts(1, {
+    search:     debouncedSearch || undefined,
+    categoryId: filterCategory  || undefined,
+    supplierId: filterSupplier  || undefined,
+  })
 
-  const [search,   setSearch]   = useState("")
+  const hasActiveFilters = !!(debouncedSearch || filterCategory || filterSupplier || filterStock)
+
+  function clearFilters() {
+    setSearch("")
+    setDebouncedSearch("")
+    setFilterCategory("")
+    setFilterSupplier("")
+    setFilterStock("")
+  }
 
   const fileInputRef   = useRef<HTMLInputElement>(null)
   const [showImport,   setShowImport]   = useState(false)
@@ -106,16 +140,16 @@ export default function InventoryPage() {
   const [isEditMode,      setIsEditMode]      = useState(false)
   const [adjustingProduct, setAdjustingProduct] = useState<Product | null>(null)
 
+  // Client-side stock-status filter (applied on top of server-filtered page)
   const filteredProducts = useMemo(() => {
-    if (!search) return products
-    const lower = search.toLowerCase()
-    return products.filter(p =>
-      p.name.toLowerCase().includes(lower)        ||
-      p.sku?.toLowerCase().includes(lower)        ||
-      p.origin?.toLowerCase().includes(lower)     ||
-      p.category?.name.toLowerCase().includes(lower)
-    )
-  }, [products, search])
+    if (!filterStock) return products
+    return products.filter(p => {
+      if (filterStock === "out_of_stock") return p.stock === 0
+      if (filterStock === "low_stock")   return p.stock > 0 && p.stock <= p.minStock
+      if (filterStock === "in_stock")    return p.stock > p.minStock
+      return true
+    })
+  }, [products, filterStock])
 
   const totalProducts  = products.length
   const lowStockCount  = products.filter(p => p.stock <= p.minStock && p.stock > 0).length
@@ -142,7 +176,7 @@ export default function InventoryPage() {
     setAdjustingProduct(product)
   }
 
-  async function handleSave(data: Partial<Product>) {
+  async function handleSave(data: ProductInput) {
     if (isEditMode && selectedProduct) {
       await updateProduct(selectedProduct.id, data)
     } else {
@@ -229,10 +263,11 @@ export default function InventoryPage() {
 
       </div>
 
-      {/* ── SEARCH ── */}
-      <div className="flex items-center gap-3">
-        <div className="flex items-center gap-2 bg-[var(--card)] rounded-lg px-3 py-2.5 flex-1 border border-[var(--border)]">
-          <Search size={16} className="text-[var(--muted)]" />
+      {/* ── FILTER BAR ── */}
+      <div className="flex items-center gap-2 flex-wrap">
+        {/* Search */}
+        <div className="flex items-center gap-2 bg-[var(--card)] rounded-lg px-3 py-2 flex-1 min-w-[180px] border border-[var(--border)]">
+          <Search size={14} className="text-[var(--muted)] shrink-0" />
           <input
             type="text"
             placeholder={t("searchPlaceholder")}
@@ -240,12 +275,51 @@ export default function InventoryPage() {
             onChange={e => setSearch(e.target.value)}
             className="bg-transparent text-sm outline-none text-[var(--foreground)] w-full placeholder:text-[var(--muted)]"
           />
+          {search && (
+            <button onClick={() => setSearch("")} className="text-[var(--muted)] hover:text-[var(--foreground)]">
+              <X size={13} />
+            </button>
+          )}
         </div>
+
+        {/* Category */}
+        <select
+          value={filterCategory}
+          onChange={e => setFilterCategory(e.target.value)}
+          className="px-3 py-2 rounded-lg border border-[var(--border)] bg-[var(--card)] text-sm text-[var(--foreground)] outline-none focus:border-baraka-primary cursor-pointer"
+        >
+          <option value="">{tCommon("category")} — All</option>
+          {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </select>
+
+        {/* Stock status */}
+        <select
+          value={filterStock}
+          onChange={e => setFilterStock(e.target.value as typeof filterStock)}
+          className="px-3 py-2 rounded-lg border border-[var(--border)] bg-[var(--card)] text-sm text-[var(--foreground)] outline-none focus:border-baraka-primary cursor-pointer"
+        >
+          <option value="">Stock — All</option>
+          <option value="in_stock">{t("inStock")}</option>
+          <option value="low_stock">{t("lowStock")}</option>
+          <option value="out_of_stock">{t("outOfStock")}</option>
+        </select>
+
+        {/* Clear */}
+        {hasActiveFilters && (
+          <button
+            onClick={clearFilters}
+            className="flex items-center gap-1.5 px-3 py-2 text-sm text-red-500 hover:bg-red-50 rounded-lg border border-red-100 transition-colors"
+          >
+            <X size={13} /> Clear
+          </button>
+        )}
+
+        {/* Refresh */}
         <Button
           onClick={fetchProducts}
-          className="p-2.5 rounded-lg bg-[var(--card)] border border-[var(--border)] hover:bg-[var(--background)] transition-colors"
+          className="p-2 rounded-lg bg-[var(--card)] border border-[var(--border)] hover:bg-[var(--background)] transition-colors"
         >
-          <RefreshCw size={16} className="text-[var(--muted)]" />
+          <RefreshCw size={15} className="text-[var(--muted)]" />
         </Button>
       </div>
 

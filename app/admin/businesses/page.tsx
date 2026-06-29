@@ -4,29 +4,47 @@ import { useState, useEffect, useCallback } from "react"
 import {
   Building2, Search, RefreshCw, Users, GitBranch,
   ChevronDown, ChevronUp, Plus, ShieldOff, ShieldCheck,
-  Trash2, Settings2, X, Loader2,
+  Trash2, Settings2, X, Loader2, CrownIcon, Package, ShoppingCart,
 } from "lucide-react"
+
+interface Plan { id: string; name: string; slug: string }
 
 interface Business {
   id: string; name: string; email: string; phone: string | null
   currency: string; status: "ACTIVE" | "SUSPENDED"; plan: string
+  planId: string | null; subscriptionStatus: string
+  trialEndsAt: string | null; planExpiresAt: string | null
   suspendedAt: string | null; suspendedReason: string | null
   maxUsers: number | null; maxProducts: number | null
+  maxOrders: number | null; maxBranches: number | null
   createdAt: string; updatedAt: string
-  _count: { users: number; branches: number }
+  subscriptionPlan: Plan | null
+  _count: { users: number; branches: number; products: number; orders: number }
   users: { name: string; email: string }[]
 }
 interface Meta { total: number; page: number; limit: number; pages: number }
 
+const STATUS_BADGE: Record<string, string> = {
+  TRIAL:     "bg-yellow-500/20 text-yellow-400 border-yellow-500/20",
+  ACTIVE:    "bg-emerald-500/20 text-emerald-400 border-emerald-500/20",
+  SUSPENDED: "bg-red-500/20 text-red-400 border-red-500/20",
+  EXPIRED:   "bg-gray-500/20 text-gray-400 border-gray-500/20",
+  CANCELLED: "bg-gray-600/20 text-gray-500 border-gray-600/20",
+}
+
 // ── Create Business Modal ──────────────────────────────────────────────────────
-function CreateModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
-  const [form, setForm] = useState({ businessName: "", ownerName: "", ownerEmail: "", ownerPassword: "", currency: "RWF", maxUsers: "", maxProducts: "" })
+function CreateModal({ plans, onClose, onCreated }: { plans: Plan[]; onClose: () => void; onCreated: () => void }) {
+  const [form, setForm] = useState({
+    businessName: "", ownerName: "", ownerEmail: "", ownerPassword: "",
+    currency: "RWF", planId: "", maxUsers: "", maxProducts: "",
+  })
   const [loading, setLoading] = useState(false)
   const [error,   setError]   = useState("")
 
   const field = (key: keyof typeof form) => ({
     value: form[key],
-    onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setForm(f => ({ ...f, [key]: e.target.value })),
+    onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
+      setForm(f => ({ ...f, [key]: e.target.value })),
   })
 
   async function handleSubmit(e: React.SyntheticEvent) {
@@ -36,6 +54,7 @@ function CreateModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         ...form,
+        planId:      form.planId    || null,
         maxUsers:    form.maxUsers    ? parseInt(form.maxUsers)    : null,
         maxProducts: form.maxProducts ? parseInt(form.maxProducts) : null,
       }),
@@ -43,8 +62,7 @@ function CreateModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
     const json = await res.json()
     setLoading(false)
     if (!res.ok) { setError(json.error || "Failed to create business"); return }
-    onCreated()
-    onClose()
+    onCreated(); onClose()
   }
 
   const inp = "w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder:text-gray-500 outline-none focus:border-gray-500"
@@ -83,12 +101,19 @@ function CreateModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
               <label className="block text-xs font-medium text-gray-400 mb-1">Owner Password *</label>
               <input {...field("ownerPassword")} type="password" placeholder="Min 8 characters" className={inp} required />
             </div>
+            <div className="col-span-2">
+              <label className="block text-xs font-medium text-gray-400 mb-1">Subscription Plan <span className="text-gray-600">(optional)</span></label>
+              <select {...field("planId")} className={inp}>
+                <option value="">No plan (Trial)</option>
+                {plans.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            </div>
             <div>
-              <label className="block text-xs font-medium text-gray-400 mb-1">Max Users <span className="text-gray-600">(blank = unlimited)</span></label>
+              <label className="block text-xs font-medium text-gray-400 mb-1">Max Users <span className="text-gray-600">(blank = plan default)</span></label>
               <input {...field("maxUsers")} type="number" min="1" placeholder="∞" className={inp} />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-400 mb-1">Max Products <span className="text-gray-600">(blank = unlimited)</span></label>
+              <label className="block text-xs font-medium text-gray-400 mb-1">Max Products <span className="text-gray-600">(blank = plan default)</span></label>
               <input {...field("maxProducts")} type="number" min="1" placeholder="∞" className={inp} />
             </div>
           </div>
@@ -99,6 +124,79 @@ function CreateModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
             </button>
           </div>
         </form>
+      </div>
+    </div>
+  )
+}
+
+// ── Assign Plan Modal ──────────────────────────────────────────────────────────
+function AssignPlanModal({ biz, plans, onClose, onDone }: { biz: Business; plans: Plan[]; onClose: () => void; onDone: () => void }) {
+  const [planId,  setPlanId]  = useState(biz.planId ?? "")
+  const [status,  setStatus]  = useState(biz.subscriptionStatus || "ACTIVE")
+  const [expires, setExpires] = useState(biz.planExpiresAt ? biz.planExpiresAt.slice(0, 10) : "")
+  const [loading, setLoading] = useState(false)
+  const [error,   setError]   = useState("")
+
+  async function handleSave() {
+    setLoading(true); setError("")
+    const res = await fetch(`/api/admin/businesses/${biz.id}`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action:             "assign-plan",
+        planId:             planId || null,
+        subscriptionStatus: status,
+        planExpiresAt:      expires ? new Date(expires).toISOString() : null,
+      }),
+    })
+    const json = await res.json()
+    setLoading(false)
+    if (!res.ok) { setError(json.error || "Failed to update"); return }
+    onDone(); onClose()
+  }
+
+  const inp = "w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder:text-gray-500 outline-none focus:border-gray-500"
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60" onClick={onClose}>
+      <div className="bg-gray-900 rounded-2xl shadow-2xl w-full max-w-sm border border-gray-700" onClick={e => e.stopPropagation()}>
+        <div className="p-5 border-b border-gray-800 flex items-center gap-3">
+          <div className="w-9 h-9 rounded-lg bg-purple-500/20 flex items-center justify-center"><CrownIcon size={18} className="text-purple-400" /></div>
+          <div>
+            <h2 className="font-semibold text-white">Assign Plan</h2>
+            <p className="text-xs text-gray-500">{biz.name}</p>
+          </div>
+        </div>
+        <div className="p-5 space-y-4">
+          {error && <p className="text-sm text-red-400">{error}</p>}
+          <div>
+            <label className="block text-xs font-medium text-gray-400 mb-1.5">Plan</label>
+            <select value={planId} onChange={e => setPlanId(e.target.value)} className={inp}>
+              <option value="">No plan (Trial)</option>
+              {plans.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-400 mb-1.5">Subscription Status</label>
+            <select value={status} onChange={e => setStatus(e.target.value)} className={inp}>
+              <option value="TRIAL">Trial</option>
+              <option value="ACTIVE">Active</option>
+              <option value="SUSPENDED">Suspended</option>
+              <option value="EXPIRED">Expired</option>
+              <option value="CANCELLED">Cancelled</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-400 mb-1.5">Plan Expires <span className="text-gray-600">(optional)</span></label>
+            <input type="date" value={expires} onChange={e => setExpires(e.target.value)} className={inp} />
+          </div>
+          <div className="flex gap-3">
+            <button onClick={onClose} className="flex-1 py-2.5 rounded-lg border border-gray-700 text-sm text-gray-400 hover:bg-gray-800 transition-colors">Cancel</button>
+            <button onClick={handleSave} disabled={loading} className="flex-1 py-2.5 rounded-lg bg-purple-600 hover:bg-purple-700 text-white text-sm font-medium transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
+              {loading ? <Loader2 size={14} className="animate-spin" /> : <CrownIcon size={14} />}
+              Assign
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   )
@@ -156,6 +254,8 @@ function SuspendModal({ biz, onClose, onDone }: { biz: Business; onClose: () => 
 function LimitsModal({ biz, onClose, onDone }: { biz: Business; onClose: () => void; onDone: () => void }) {
   const [maxUsers,    setMaxUsers]    = useState(biz.maxUsers?.toString()    ?? "")
   const [maxProducts, setMaxProducts] = useState(biz.maxProducts?.toString() ?? "")
+  const [maxOrders,   setMaxOrders]   = useState(biz.maxOrders?.toString()   ?? "")
+  const [maxBranches, setMaxBranches] = useState(biz.maxBranches?.toString() ?? "")
   const [loading,     setLoading]     = useState(false)
   const [error,       setError]       = useState("")
 
@@ -167,6 +267,8 @@ function LimitsModal({ biz, onClose, onDone }: { biz: Business; onClose: () => v
         action:      "set-limits",
         maxUsers:    maxUsers    ? parseInt(maxUsers)    : null,
         maxProducts: maxProducts ? parseInt(maxProducts) : null,
+        maxOrders:   maxOrders   ? parseInt(maxOrders)   : null,
+        maxBranches: maxBranches ? parseInt(maxBranches) : null,
       }),
     })
     const json = await res.json()
@@ -183,8 +285,8 @@ function LimitsModal({ biz, onClose, onDone }: { biz: Business; onClose: () => v
         <div className="p-5 border-b border-gray-800 flex items-center gap-3">
           <div className="w-9 h-9 rounded-lg bg-blue-500/20 flex items-center justify-center"><Settings2 size={18} className="text-blue-400" /></div>
           <div>
-            <h2 className="font-semibold text-white">Usage Limits</h2>
-            <p className="text-xs text-gray-500">{biz.name} · leave blank for unlimited</p>
+            <h2 className="font-semibold text-white">Usage Limits Override</h2>
+            <p className="text-xs text-gray-500">{biz.name} · leave blank to use plan defaults</p>
           </div>
         </div>
         <div className="p-5 space-y-4">
@@ -197,6 +299,14 @@ function LimitsModal({ biz, onClose, onDone }: { biz: Business; onClose: () => v
             <div>
               <label className="block text-xs font-medium text-gray-400 mb-1.5">Max Products</label>
               <input type="number" min="1" value={maxProducts} onChange={e => setMaxProducts(e.target.value)} placeholder="∞" className={inp} />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-400 mb-1.5">Max Orders</label>
+              <input type="number" min="1" value={maxOrders} onChange={e => setMaxOrders(e.target.value)} placeholder="∞" className={inp} />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-400 mb-1.5">Max Branches</label>
+              <input type="number" min="1" value={maxBranches} onChange={e => setMaxBranches(e.target.value)} placeholder="∞" className={inp} />
             </div>
           </div>
           <div className="flex gap-3">
@@ -216,16 +326,18 @@ function LimitsModal({ biz, onClose, onDone }: { biz: Business; onClose: () => v
 export default function AdminBusinessesPage() {
   const [businesses, setBusinesses] = useState<Business[]>([])
   const [meta,       setMeta]       = useState<Meta>({ total: 0, page: 1, limit: 20, pages: 0 })
+  const [plans,      setPlans]      = useState<Plan[]>([])
   const [isLoading,  setIsLoading]  = useState(true)
   const [error,      setError]      = useState("")
   const [search,     setSearch]     = useState("")
   const [page,       setPage]       = useState(1)
   const [expandedId, setExpandedId] = useState<string | null>(null)
 
-  const [showCreate, setShowCreate] = useState(false)
-  const [suspendBiz, setSuspendBiz] = useState<Business | null>(null)
-  const [limitsBiz,  setLimitsBiz]  = useState<Business | null>(null)
-  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [showCreate,  setShowCreate]  = useState(false)
+  const [suspendBiz,  setSuspendBiz]  = useState<Business | null>(null)
+  const [limitsBiz,   setLimitsBiz]   = useState<Business | null>(null)
+  const [assignBiz,   setAssignBiz]   = useState<Business | null>(null)
+  const [deletingId,  setDeletingId]  = useState<string | null>(null)
 
   const load = useCallback(() => {
     setIsLoading(true)
@@ -237,6 +349,9 @@ export default function AdminBusinessesPage() {
 
   useEffect(() => { load() }, [load])
   useEffect(() => { setPage(1) }, [search])
+  useEffect(() => {
+    fetch("/api/admin/plans").then(r => r.json()).then(data => setPlans(Array.isArray(data) ? data : []))
+  }, [])
 
   async function handleUnsuspend(biz: Business) {
     const res = await fetch(`/api/admin/businesses/${biz.id}`, {
@@ -262,8 +377,6 @@ export default function AdminBusinessesPage() {
 
   return (
     <div className="space-y-5 max-w-6xl">
-
-      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-white">Businesses</h1>
@@ -279,7 +392,6 @@ export default function AdminBusinessesPage() {
         </div>
       </div>
 
-      {/* Search */}
       <div className="relative">
         <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-500" />
         <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by name or email…" className="w-full pl-10 pr-4 py-2.5 bg-gray-900 border border-gray-700 rounded-xl text-sm text-white placeholder:text-gray-500 outline-none focus:border-gray-500 transition-colors" />
@@ -287,7 +399,6 @@ export default function AdminBusinessesPage() {
 
       {error && <p className="text-red-400 text-sm">{error}</p>}
 
-      {/* List */}
       <div className="bg-gray-900 rounded-xl border border-gray-800 overflow-hidden">
         {isLoading ? (
           <div className="flex items-center justify-center py-16"><RefreshCw size={18} className="animate-spin text-gray-600" /></div>
@@ -298,90 +409,97 @@ export default function AdminBusinessesPage() {
           </div>
         ) : (
           <div className="divide-y divide-gray-800">
-            {businesses.map(biz => (
-              <div key={biz.id}>
-                <div className="flex items-center justify-between px-5 py-4 hover:bg-gray-800/40 transition-colors">
-                  {/* Left — click to expand */}
-                  <div className="flex items-center gap-4 cursor-pointer flex-1 min-w-0" onClick={() => setExpandedId(expandedId === biz.id ? null : biz.id)}>
-                    <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${biz.status === "SUSPENDED" ? "bg-red-500/20 border border-red-500/20" : "bg-blue-500/20 border border-blue-500/20"}`}>
-                      <span className={`text-sm font-bold ${biz.status === "SUSPENDED" ? "text-red-400" : "text-blue-400"}`}>{biz.name[0].toUpperCase()}</span>
-                    </div>
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <p className="text-sm font-semibold text-white truncate">{biz.name}</p>
-                        {biz.status === "SUSPENDED" && (
-                          <span className="text-xs px-1.5 py-0.5 rounded-full bg-red-500/20 text-red-400 border border-red-500/20 shrink-0">SUSPENDED</span>
-                        )}
-                        <span className="text-xs px-1.5 py-0.5 rounded-full bg-gray-700 text-gray-400 shrink-0">{biz.plan}</span>
+            {businesses.map(biz => {
+              const subStatus = biz.subscriptionStatus || "TRIAL"
+              const planLabel = biz.subscriptionPlan?.name ?? biz.plan ?? "Trial"
+
+              return (
+                <div key={biz.id}>
+                  <div className="flex items-center justify-between px-5 py-4 hover:bg-gray-800/40 transition-colors">
+                    <div className="flex items-center gap-4 cursor-pointer flex-1 min-w-0" onClick={() => setExpandedId(expandedId === biz.id ? null : biz.id)}>
+                      <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${biz.status === "SUSPENDED" ? "bg-red-500/20 border border-red-500/20" : "bg-blue-500/20 border border-blue-500/20"}`}>
+                        <span className={`text-sm font-bold ${biz.status === "SUSPENDED" ? "text-red-400" : "text-blue-400"}`}>{biz.name[0].toUpperCase()}</span>
                       </div>
-                      <p className="text-xs text-gray-500 truncate">{biz.email}</p>
-                    </div>
-                  </div>
-
-                  {/* Right — metadata stats + actions */}
-                  <div className="flex items-center gap-4 shrink-0 ml-4">
-                    <div className="hidden md:flex items-center gap-3 text-xs text-gray-500">
-                      <span className="flex items-center gap-1"><Users size={11} />{biz._count.users}{biz.maxUsers ? `/${biz.maxUsers}` : ""}</span>
-                      <span className="flex items-center gap-1"><GitBranch size={11} />{biz._count.branches}</span>
-                    </div>
-                    <span className="text-xs text-gray-600 hidden sm:block">{formatDate(biz.createdAt)}</span>
-
-                    {/* Action buttons */}
-                    <div className="flex items-center gap-1">
-                      <button onClick={() => setLimitsBiz(biz)} title="Set limits" className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-700 hover:text-blue-400 transition-colors">
-                        <Settings2 size={14} />
-                      </button>
-                      {biz.status === "ACTIVE" ? (
-                        <button onClick={() => setSuspendBiz(biz)} title="Suspend" className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-700 hover:text-red-400 transition-colors">
-                          <ShieldOff size={14} />
-                        </button>
-                      ) : (
-                        <button onClick={() => handleUnsuspend(biz)} title="Unsuspend" className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-700 hover:text-emerald-400 transition-colors">
-                          <ShieldCheck size={14} />
-                        </button>
-                      )}
-                      <button onClick={() => handleDelete(biz)} disabled={deletingId === biz.id} title="Delete permanently" className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-700 hover:text-red-500 transition-colors disabled:opacity-40">
-                        {deletingId === biz.id ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
-                      </button>
-                    </div>
-                    <div className="cursor-pointer" onClick={() => setExpandedId(expandedId === biz.id ? null : biz.id)}>
-                      {expandedId === biz.id ? <ChevronUp size={14} className="text-gray-500" /> : <ChevronDown size={14} className="text-gray-500" />}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Expanded details — metadata only, no financial data */}
-                {expandedId === biz.id && (
-                  <div className="px-5 pb-5 pt-2 bg-gray-800/30 border-t border-gray-800">
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-2">
-                      {[
-                        { label: "Users",    value: `${biz._count.users}${biz.maxUsers ? ` / ${biz.maxUsers}` : ""}`, icon: Users },
-                        { label: "Branches", value: biz._count.branches, icon: GitBranch },
-                        { label: "Plan",     value: biz.plan, icon: null },
-                        { label: "Max Products", value: biz.maxProducts ? `${biz.maxProducts}` : "Unlimited", icon: null },
-                      ].map(s => (
-                        <div key={s.label} className="bg-gray-900 rounded-lg p-3 border border-gray-700">
-                          <p className="text-xs text-gray-500">{s.label}</p>
-                          <p className="text-base font-bold text-white mt-0.5">{s.value}</p>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="text-sm font-semibold text-white truncate">{biz.name}</p>
+                          {biz.status === "SUSPENDED" && (
+                            <span className="text-xs px-1.5 py-0.5 rounded-full bg-red-500/20 text-red-400 border border-red-500/20 shrink-0">SUSPENDED</span>
+                          )}
+                          <span className={`text-xs px-1.5 py-0.5 rounded-full border shrink-0 ${STATUS_BADGE[subStatus] ?? STATUS_BADGE.TRIAL}`}>{subStatus}</span>
+                          <span className="text-xs px-1.5 py-0.5 rounded-full bg-gray-700 text-gray-400 shrink-0">{planLabel}</span>
                         </div>
-                      ))}
+                        <p className="text-xs text-gray-500 truncate">{biz.email}</p>
+                      </div>
                     </div>
-                    <div className="mt-3 flex flex-wrap gap-4 text-xs text-gray-500">
-                      {owner(biz) && <span>Owner: {owner(biz)!.name} · {owner(biz)!.email}</span>}
-                      {biz.phone && <span>Phone: {biz.phone}</span>}
-                      <span>Currency: {biz.currency}</span>
-                      <span>Joined: {formatDate(biz.createdAt)}</span>
-                      {biz.suspendedAt && <span className="text-red-400">Suspended: {formatDate(biz.suspendedAt)} {biz.suspendedReason ? `— ${biz.suspendedReason}` : ""}</span>}
+
+                    <div className="flex items-center gap-4 shrink-0 ml-4">
+                      <div className="hidden md:flex items-center gap-3 text-xs text-gray-500">
+                        <span className="flex items-center gap-1"><Users size={11} />{biz._count.users}{biz.maxUsers ? `/${biz.maxUsers}` : ""}</span>
+                        <span className="flex items-center gap-1"><GitBranch size={11} />{biz._count.branches}</span>
+                        <span className="flex items-center gap-1"><Package size={11} />{biz._count.products}</span>
+                      </div>
+                      <span className="text-xs text-gray-600 hidden sm:block">{formatDate(biz.createdAt)}</span>
+
+                      <div className="flex items-center gap-1">
+                        <button onClick={() => setAssignBiz(biz)} title="Assign plan" className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-700 hover:text-purple-400 transition-colors">
+                          <CrownIcon size={14} />
+                        </button>
+                        <button onClick={() => setLimitsBiz(biz)} title="Set limits" className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-700 hover:text-blue-400 transition-colors">
+                          <Settings2 size={14} />
+                        </button>
+                        {biz.status === "ACTIVE" ? (
+                          <button onClick={() => setSuspendBiz(biz)} title="Suspend" className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-700 hover:text-red-400 transition-colors">
+                            <ShieldOff size={14} />
+                          </button>
+                        ) : (
+                          <button onClick={() => handleUnsuspend(biz)} title="Unsuspend" className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-700 hover:text-emerald-400 transition-colors">
+                            <ShieldCheck size={14} />
+                          </button>
+                        )}
+                        <button onClick={() => handleDelete(biz)} disabled={deletingId === biz.id} title="Delete permanently" className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-700 hover:text-red-500 transition-colors disabled:opacity-40">
+                          {deletingId === biz.id ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                        </button>
+                      </div>
+                      <div className="cursor-pointer" onClick={() => setExpandedId(expandedId === biz.id ? null : biz.id)}>
+                        {expandedId === biz.id ? <ChevronUp size={14} className="text-gray-500" /> : <ChevronDown size={14} className="text-gray-500" />}
+                      </div>
                     </div>
                   </div>
-                )}
-              </div>
-            ))}
+
+                  {expandedId === biz.id && (
+                    <div className="px-5 pb-5 pt-2 bg-gray-800/30 border-t border-gray-800">
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-2">
+                        {[
+                          { label: "Users",    value: `${biz._count.users}${biz.maxUsers ? ` / ${biz.maxUsers}` : ""}`,     icon: Users },
+                          { label: "Branches", value: `${biz._count.branches}${biz.maxBranches ? ` / ${biz.maxBranches}` : ""}`, icon: GitBranch },
+                          { label: "Products", value: `${biz._count.products}${biz.maxProducts ? ` / ${biz.maxProducts}` : ""}`, icon: Package },
+                          { label: "Orders",   value: `${biz._count.orders}${biz.maxOrders ? ` / ${biz.maxOrders}` : ""}`,   icon: ShoppingCart },
+                        ].map(s => (
+                          <div key={s.label} className="bg-gray-900 rounded-lg p-3 border border-gray-700">
+                            <p className="text-xs text-gray-500">{s.label}</p>
+                            <p className="text-base font-bold text-white mt-0.5">{s.value}</p>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="mt-3 flex flex-wrap gap-4 text-xs text-gray-500">
+                        {owner(biz) && <span>Owner: {owner(biz)!.name} · {owner(biz)!.email}</span>}
+                        {biz.phone && <span>Phone: {biz.phone}</span>}
+                        <span>Currency: {biz.currency}</span>
+                        <span>Joined: {formatDate(biz.createdAt)}</span>
+                        {biz.planExpiresAt && <span>Plan expires: {formatDate(biz.planExpiresAt)}</span>}
+                        {biz.trialEndsAt   && <span className="text-yellow-500">Trial ends: {formatDate(biz.trialEndsAt)}</span>}
+                        {biz.suspendedAt   && <span className="text-red-400">Suspended: {formatDate(biz.suspendedAt)} {biz.suspendedReason ? `— ${biz.suspendedReason}` : ""}</span>}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
           </div>
         )}
       </div>
 
-      {/* Pagination */}
       {meta.pages > 1 && (
         <div className="flex items-center justify-between">
           <p className="text-sm text-gray-500">Showing {Math.min((meta.page - 1) * meta.limit + 1, meta.total)}–{Math.min(meta.page * meta.limit, meta.total)} of {meta.total}</p>
@@ -393,10 +511,10 @@ export default function AdminBusinessesPage() {
         </div>
       )}
 
-      {/* Modals */}
-      {showCreate  && <CreateModal  onClose={() => setShowCreate(false)}  onCreated={load} />}
-      {suspendBiz  && <SuspendModal biz={suspendBiz}  onClose={() => setSuspendBiz(null)}  onDone={load} />}
-      {limitsBiz   && <LimitsModal  biz={limitsBiz}   onClose={() => setLimitsBiz(null)}   onDone={load} />}
+      {showCreate && <CreateModal plans={plans} onClose={() => setShowCreate(false)} onCreated={load} />}
+      {suspendBiz && <SuspendModal biz={suspendBiz} onClose={() => setSuspendBiz(null)} onDone={load} />}
+      {limitsBiz  && <LimitsModal  biz={limitsBiz}  onClose={() => setLimitsBiz(null)}  onDone={load} />}
+      {assignBiz  && <AssignPlanModal biz={assignBiz} plans={plans} onClose={() => setAssignBiz(null)} onDone={load} />}
     </div>
   )
 }

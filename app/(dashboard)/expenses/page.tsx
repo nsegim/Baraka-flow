@@ -150,10 +150,14 @@ export default function ExpensesPage() {
   const [key,        setKey]        = useState(0)
 
   const now = new Date()
-  const [month, setMonth] = useState(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`)
+  const [month,          setMonth]          = useState(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`)
+  const [filterCategory, setFilterCategory] = useState("")
 
   useEffect(() => {
-    fetch(`/api/expenses?page=${page}&limit=50&month=${month}`)
+    const sp = new URLSearchParams({ page: String(page), limit: "50" })
+    if (month)          sp.set("month",    month)
+    if (filterCategory) sp.set("category", filterCategory)
+    fetch(`/api/expenses?${sp}`)
       .then(r => r.json())
       .then(json => {
         setExpenses(json.data ?? [])
@@ -161,7 +165,7 @@ export default function ExpensesPage() {
         setIsLoading(false)
       })
       .catch(() => setIsLoading(false))
-  }, [page, key, month])
+  }, [page, key, month, filterCategory])
 
   const refresh = useCallback(() => { setIsLoading(true); setKey(k => k + 1) }, [])
 
@@ -205,21 +209,35 @@ export default function ExpensesPage() {
         </Button>
       </div>
 
-      {/* Summary + Month filter */}
-      <div className="grid grid-cols-3 gap-4">
-        <div className="col-span-2 bg-[var(--card)] rounded-xl p-4 border border-[var(--border)]">
-          <p className="text-xs text-[var(--muted)] mb-1">{t("totalThisPeriod")}</p>
-          <p className="text-2xl font-bold text-red-600">{formatRWF(totalAmount)}</p>
-        </div>
-        <div className="bg-[var(--card)] rounded-xl p-4 border border-[var(--border)]">
-          <label className="block text-xs text-[var(--muted)] mb-2">{t("filterByMonth")}</label>
-          <input
-            type="month"
-            value={month}
-            onChange={e => { setMonth(e.target.value); setPage(1); setIsLoading(true) }}
-            className="w-full text-sm bg-transparent text-[var(--foreground)] outline-none border-b border-[var(--border)] pb-1"
-          />
-        </div>
+      {/* Summary card */}
+      <div className="bg-[var(--card)] rounded-xl p-4 border border-[var(--border)]">
+        <p className="text-xs text-[var(--muted)] mb-1">{t("totalThisPeriod")}</p>
+        <p className="text-2xl font-bold text-red-600">{formatRWF(totalAmount)}</p>
+      </div>
+
+      {/* ── Filter Bar ── */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <input
+          type="month"
+          value={month}
+          onChange={e => { setMonth(e.target.value); setPage(1); setIsLoading(true) }}
+          className="px-3 py-2 rounded-lg border border-[var(--border)] bg-[var(--card)] text-sm text-[var(--foreground)] outline-none focus:border-baraka-primary cursor-pointer"
+        />
+
+        <select value={filterCategory} onChange={e => { setFilterCategory(e.target.value); setPage(1) }}
+          className="px-3 py-2 rounded-lg border border-[var(--border)] bg-[var(--card)] text-sm text-[var(--foreground)] outline-none focus:border-baraka-primary cursor-pointer">
+          <option value="">Category — All</option>
+          {CATEGORY_KEYS.map(k => (
+            <option key={k} value={k}>{k.replace("_", " ")}</option>
+          ))}
+        </select>
+
+        {filterCategory && (
+          <button onClick={() => setFilterCategory("")}
+            className="flex items-center gap-1.5 px-3 py-2 text-sm text-red-500 hover:bg-red-50 rounded-lg border border-red-100 transition-colors">
+            <X size={13} /> Clear
+          </button>
+        )}
       </div>
 
       {/* Table */}

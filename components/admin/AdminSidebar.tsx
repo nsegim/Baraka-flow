@@ -2,12 +2,13 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { LayoutDashboard, Building2, Users, LogOut, ShieldCheck, HeadphonesIcon, Activity } from "lucide-react"
+import { LayoutDashboard, Building2, Users, LogOut, ShieldCheck, HeadphonesIcon, Activity, CrownIcon } from "lucide-react"
 import { signOut } from "next-auth/react"
 
 const navItems = [
   { label: "Overview",       href: "/admin",                icon: LayoutDashboard  },
   { label: "Businesses",     href: "/admin/businesses",     icon: Building2        },
+  { label: "Plans",          href: "/admin/plans",          icon: CrownIcon        },
   { label: "Users",          href: "/admin/users",          icon: Users            },
   { label: "Support",        href: "/admin/support",        icon: HeadphonesIcon   },
   { label: "Platform Logs",  href: "/admin/platform-logs",  icon: Activity         },

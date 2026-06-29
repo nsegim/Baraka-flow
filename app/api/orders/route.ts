@@ -7,6 +7,7 @@ import { createNotification } from "@/lib/notify"
 import { createAuditLog } from "@/lib/audit"
 import { getIp } from "@/lib/rate-limit"
 import { requireBranchContext, isBranchContext, buildBranchWhere, getWriteBranchId } from "@/lib/branch-auth"
+import { checkPlanLimit } from "@/lib/plan-limits"
 
 // GET /api/orders — paginated, branch-scoped
 export async function GET(request: NextRequest) {
@@ -15,11 +16,29 @@ export async function GET(request: NextRequest) {
     if (!isBranchContext(ctx)) return ctx
 
     const { searchParams } = request.nextUrl
-    const page  = Math.max(1, parseInt(searchParams.get("page")  ?? "1"))
-    const limit = Math.min(100, Math.max(1, parseInt(searchParams.get("limit") ?? "50")))
-    const skip  = (page - 1) * limit
+    const page          = Math.max(1, parseInt(searchParams.get("page")  ?? "1"))
+    const limit         = Math.min(100, Math.max(1, parseInt(searchParams.get("limit") ?? "50")))
+    const skip          = (page - 1) * limit
+    const status        = searchParams.get("status")
+    const paymentStatus = searchParams.get("paymentStatus")
+    const month         = searchParams.get("month")
+    const search        = searchParams.get("search")?.trim()
 
-    const where = buildBranchWhere(ctx)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const where: any = buildBranchWhere(ctx)
+    if (status)        where.status        = status
+    if (paymentStatus) where.paymentStatus = paymentStatus
+    if (month) {
+      const [year, mon] = month.split("-").map(Number)
+      where.createdAt = { gte: new Date(year, mon - 1, 1), lt: new Date(year, mon, 1) }
+    }
+    if (search) {
+      where.OR = [
+        { customerName:  { contains: search, mode: "insensitive" } },
+        { orderNumber:   { contains: search, mode: "insensitive" } },
+        { customerPhone: { contains: search, mode: "insensitive" } },
+      ]
+    }
 
     const [orders, total] = await prisma.$transaction([
       prisma.order.findMany({
@@ -68,6 +87,12 @@ export async function POST(request: NextRequest) {
       select: { id: true, name: true, code: true },
     })
     if (!branch) return NextResponse.json({ error: "Branch not found" }, { status: 404 })
+
+    // Plan enforcement
+    const limitCheck = await checkPlanLimit(ctx.session.user.businessId, "orders")
+    if (!limitCheck.allowed) {
+      return NextResponse.json({ error: limitCheck.error }, { status: 403 })
+    }
 
     const body   = await request.json()
     const parsed = CreateOrderSchema.safeParse(body)
