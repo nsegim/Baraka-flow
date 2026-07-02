@@ -1,5 +1,5 @@
+import { prisma }            from "@/lib/prisma"
 import type { AuditAction } from "@/lib/generated/prisma/enums"
-import { enqueueAuditLog }  from "@/lib/audit-queue"
 
 interface CreateAuditLogOptions {
   businessId: string
@@ -13,14 +13,16 @@ interface CreateAuditLogOptions {
 }
 
 export function createAuditLog(options: CreateAuditLogOptions): void {
-  enqueueAuditLog({
-    action:     options.action,
-    entityType: options.entityType,
-    entityId:   options.entityId  ?? null,
-    metadata:   options.metadata ? (options.metadata as object) : undefined,
-    ipAddress:  options.ipAddress ?? null,
-    businessId: options.businessId,
-    branchId:   options.branchId  ?? null,
-    userId:     options.userId    ?? null,
-  })
+  prisma.auditLog.create({
+    data: {
+      action:     options.action,
+      entityType: options.entityType,
+      entityId:   options.entityId  ?? null,
+      metadata:   options.metadata ? (options.metadata as object) : undefined,
+      ipAddress:  options.ipAddress ?? null,
+      businessId: options.businessId,
+      branchId:   options.branchId  ?? null,
+      userId:     options.userId    ?? null,
+    },
+  }).catch(() => {})
 }

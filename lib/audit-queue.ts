@@ -1,7 +1,7 @@
-// Batched audit-log writer.
-// Accumulates entries in memory and flushes with createMany every 5 s or when
-// the queue reaches FLUSH_SIZE — whichever comes first.
-// Non-critical: failures are silently dropped (same contract as fire-and-forget).
+// Batched audit-log writer — FOR PERSISTENT SERVER DEPLOYMENTS ONLY (Railway, VPS).
+// Do NOT use on Vercel: setInterval is killed between Lambda invocations,
+// causing queued entries to be silently dropped.
+// On Vercel, lib/audit.ts uses prisma.auditLog.create() directly instead.
 
 import { prisma }         from "@/lib/prisma"
 import type { AuditAction } from "@/lib/generated/prisma/enums"
