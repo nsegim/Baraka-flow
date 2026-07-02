@@ -4,6 +4,8 @@ import { prisma } from "@/lib/prisma"
 import { serialize } from "@/lib/serialize"
 import { createPlatformAuditLog } from "@/lib/platform-audit"
 import { z } from "zod"
+import { invalidatePlanCache }        from "@/lib/plan-limits"
+import { invalidateSubscriptionCache } from "@/lib/subscription"
 
 const UpdateSchema = z.object({
   action:             z.enum(["suspend", "unsuspend", "set-limits", "assign-plan"]),
@@ -80,6 +82,8 @@ export async function PATCH(
     })
     auditAction = "TENANT_PLAN_CHANGED"
     auditMeta   = { planId, subscriptionStatus, trialEndsAt, planExpiresAt }
+    invalidatePlanCache(id)
+    invalidateSubscriptionCache(id)
   } else {
     // set-limits
     updated = await prisma.business.update({
@@ -93,6 +97,7 @@ export async function PATCH(
     })
     auditAction = "TENANT_PLAN_CHANGED"
     auditMeta   = { maxUsers, maxProducts, maxOrders, maxBranches }
+    invalidatePlanCache(id)
   }
 
   const platformUserId = await getPlatformUserId()

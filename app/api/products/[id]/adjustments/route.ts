@@ -5,6 +5,7 @@ import { z } from "zod"
 import { requireBranchContext, isBranchContext, getWriteBranchId } from "@/lib/branch-auth"
 import { createAuditLog } from "@/lib/audit"
 import { getIp } from "@/lib/rate-limit"
+import { can, type Role } from "@/lib/permissions"
 
 const CreateAdjustmentSchema = z.object({
   type:      z.enum(["ADJUSTMENT", "DAMAGE", "RETURN"]),
@@ -58,7 +59,7 @@ export async function POST(
     const ctx = await requireBranchContext(request, { requireBranch: true })
     if (!isBranchContext(ctx)) return ctx
 
-    if (!["OWNER", "MANAGER"].includes(ctx.session.user.role)) {
+    if (!can(ctx.session.user.role as Role, "stock:adjust")) {
       return NextResponse.json({ error: "Only Managers and Owners can adjust stock" }, { status: 403 })
     }
 

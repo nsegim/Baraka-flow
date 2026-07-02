@@ -6,6 +6,7 @@ import { serialize } from "@/lib/serialize"
 import { createNotification } from "@/lib/notify"
 import { createAuditLog } from "@/lib/audit"
 import { getIp } from "@/lib/rate-limit"
+import { can, type Role } from "@/lib/permissions"
 
 // POST /api/payments — record a payment against an order
 export async function POST(request: NextRequest) {
@@ -13,7 +14,7 @@ export async function POST(request: NextRequest) {
     const session = await auth()
     if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-    if (!["OWNER", "MANAGER"].includes(session.user.role)) {
+    if (!can(session.user.role as Role, "payment:create")) {
       return NextResponse.json({ error: "Permission denied" }, { status: 403 })
     }
 

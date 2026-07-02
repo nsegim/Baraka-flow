@@ -1,4 +1,5 @@
-import { prisma } from "@/lib/prisma"
+import { prisma }                          from "@/lib/prisma"
+import { cache, TTL, planLimitsKey }       from "@/lib/cache"
 
 export type PlanResource = "users" | "products" | "orders" | "branches"
 
@@ -35,10 +36,13 @@ export async function checkPlanLimit(
   businessId: string,
   resource:   PlanResource,
 ): Promise<LimitCheckResult> {
-  const biz = await prisma.business.findUnique({
-    where:  { id: businessId },
-    select: bizPlanSelect,
-  })
+  const cacheKey = planLimitsKey(businessId)
+  let biz = cache.get<Awaited<ReturnType<typeof fetchBizPlan>>>(cacheKey)
+
+  if (!biz) {
+    biz = await fetchBizPlan(businessId)
+    if (biz) cache.set(cacheKey, biz, TTL.planLimits)
+  }
 
   if (!biz) return { allowed: false, error: "Business not found" }
 
@@ -108,7 +112,20 @@ export async function getBusinessUsage(businessId: string) {
   return { users, products, orders, branches }
 }
 
+// ── invalidatePlanCache ───────────────────────────────────────────────────────
+// Call after assigning or changing a plan so the next limit check re-fetches.
+export function invalidatePlanCache(businessId: string): void {
+  cache.del(planLimitsKey(businessId))
+}
+
 // ── helpers ──────────────────────────────────────────────────────────────────
+async function fetchBizPlan(businessId: string) {
+  return prisma.business.findUnique({
+    where:  { id: businessId },
+    select: bizPlanSelect,
+  })
+}
+
 function resolveLimit(
   biz: {
     maxUsers: number | null; maxProducts: number | null

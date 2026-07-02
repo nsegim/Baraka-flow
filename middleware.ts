@@ -55,7 +55,8 @@ export function middleware(req: NextRequest) {
     url.pathname.startsWith("/branches")        ||
     url.pathname.startsWith("/stock-transfers") ||
     url.pathname.startsWith("/audit-logs")      ||
-    url.pathname.startsWith("/settings")
+    url.pathname.startsWith("/settings")        ||
+    url.pathname.startsWith("/billing")
 
   if (isDashboard && !isLoggedIn) {
     url.pathname = "/login"

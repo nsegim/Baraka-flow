@@ -5,6 +5,7 @@ import { serialize } from "@/lib/serialize"
 import { createAuditLog } from "@/lib/audit"
 import { getIp } from "@/lib/rate-limit"
 import { requireBranchContext, isBranchContext, buildBranchWhere, getWriteBranchId } from "@/lib/branch-auth"
+import { can, type Role } from "@/lib/permissions"
 
 // GET /api/purchase-orders — paginated, branch-scoped
 export async function GET(request: NextRequest) {
@@ -58,7 +59,7 @@ export async function POST(request: NextRequest) {
     const ctx = await requireBranchContext(request, { requireBranch: true })
     if (!isBranchContext(ctx)) return ctx
 
-    if (!["OWNER", "MANAGER"].includes(ctx.session.user.role)) {
+    if (!can(ctx.session.user.role as Role, "purchase-order:create")) {
       return NextResponse.json({ error: "Permission denied" }, { status: 403 })
     }
 

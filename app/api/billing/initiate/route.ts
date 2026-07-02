@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
 
   const plan = await prisma.plan.findUnique({ where: { id: parsed.data.planId } })
   if (!plan || !plan.isActive) return NextResponse.json({ error: "Plan not found" }, { status: 404 })
-  if (plan.price === 0) return NextResponse.json({ error: "Free plan does not require payment" }, { status: 400 })
+  if (Number(plan.price) === 0) return NextResponse.json({ error: "Free plan does not require payment" }, { status: 400 })
 
   const business = await prisma.business.findUnique({
     where:  { id: session.user.businessId },

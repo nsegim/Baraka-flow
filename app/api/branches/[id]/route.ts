@@ -5,6 +5,7 @@ import { UpdateBranchSchema } from "@/lib/validators"
 import { serialize } from "@/lib/serialize"
 import { createAuditLog } from "@/lib/audit"
 import { getIp } from "@/lib/rate-limit"
+import { can, type Role } from "@/lib/permissions"
 
 // GET /api/branches/[id] — branch detail with staff and inventory summary
 export async function GET(
@@ -14,7 +15,7 @@ export async function GET(
   try {
     const session = await auth()
     if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    if (session.user.role !== "OWNER") {
+    if (!can(session.user.role as Role, "branch:update")) {
       return NextResponse.json({ error: "Only owners can view branch details" }, { status: 403 })
     }
 
@@ -66,7 +67,7 @@ export async function PATCH(
   try {
     const session = await auth()
     if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    if (session.user.role !== "OWNER") {
+    if (!can(session.user.role as Role, "branch:update")) {
       return NextResponse.json({ error: "Only owners can update branches" }, { status: 403 })
     }
 
@@ -132,7 +133,7 @@ export async function DELETE(
   try {
     const session = await auth()
     if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    if (session.user.role !== "OWNER") {
+    if (!can(session.user.role as Role, "branch:update")) {
       return NextResponse.json({ error: "Only owners can remove branches" }, { status: 403 })
     }
 

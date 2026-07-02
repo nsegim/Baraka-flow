@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
+import { can, type Role } from "@/lib/permissions"
 import { prisma } from "@/lib/prisma"
 import { z } from "zod"
 import { randomUUID } from "crypto"
@@ -70,7 +71,7 @@ export async function POST(
     const session = await auth()
     if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-    if (!["OWNER", "MANAGER"].includes(session.user.role)) {
+    if (!can(session.user.role as Role, "customer:update")) {
       return NextResponse.json(
         { error: "Only Managers and Owners can issue credit notes" },
         { status: 403 }

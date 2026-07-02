@@ -1,38 +1,37 @@
 import { NextRequest, NextResponse } from "next/server"
-import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { UpdateExpenseSchema } from "@/lib/validators"
 import { serialize } from "@/lib/serialize"
+import { requireBranchContext, isBranchContext } from "@/lib/branch-auth"
+import { can, type Role } from "@/lib/permissions"
 
-// PATCH /api/expenses/[id]
+// PATCH /api/expenses/[id] — OWNER and MANAGER only
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const session = await auth()
-    if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    const ctx = await requireBranchContext(request)
+    if (!isBranchContext(ctx)) return ctx
 
-    if (!["OWNER", "MANAGER"].includes(session.user.role)) {
+    if (!can(ctx.session.user.role as Role, "expense:update")) {
       return NextResponse.json({ error: "Permission denied" }, { status: 403 })
     }
 
-    const { id } = await params
-    const body   = await request.json()
-
-    const parsed = UpdateExpenseSchema.safeParse(body)
+    const { id }   = await params
+    const parsed   = UpdateExpenseSchema.safeParse(await request.json())
     if (!parsed.success) {
       return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 })
     }
 
     const existing = await prisma.expense.findFirst({
-      where: { id, businessId: session.user.businessId },
+      where: { id, businessId: ctx.session.user.businessId },
     })
     if (!existing) return NextResponse.json({ error: "Expense not found" }, { status: 404 })
 
     const updated = await prisma.expense.update({
       where: { id },
-      data:  {
+      data: {
         title:    parsed.data.title    ?? existing.title,
         amount:   parsed.data.amount   ?? existing.amount,
         category: parsed.data.category ?? existing.category,
@@ -43,37 +42,34 @@ export async function PATCH(
     })
 
     return NextResponse.json(serialize(updated))
-
   } catch (error) {
     console.error(error)
     return NextResponse.json({ error: "Failed to update expense" }, { status: 500 })
   }
 }
 
-// DELETE /api/expenses/[id]
+// DELETE /api/expenses/[id] — OWNER and MANAGER only
 export async function DELETE(
   _request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const session = await auth()
-    if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    const ctx = await requireBranchContext(_request)
+    if (!isBranchContext(ctx)) return ctx
 
-    if (!["OWNER", "MANAGER"].includes(session.user.role)) {
+    if (!can(ctx.session.user.role as Role, "expense:delete")) {
       return NextResponse.json({ error: "Permission denied" }, { status: 403 })
     }
 
-    const { id } = await params
-
+    const { id }   = await params
     const existing = await prisma.expense.findFirst({
-      where: { id, businessId: session.user.businessId },
+      where: { id, businessId: ctx.session.user.businessId },
     })
     if (!existing) return NextResponse.json({ error: "Expense not found" }, { status: 404 })
 
     await prisma.expense.delete({ where: { id } })
 
     return NextResponse.json({ message: "Expense deleted" })
-
   } catch (error) {
     console.error(error)
     return NextResponse.json({ error: "Failed to delete expense" }, { status: 500 })

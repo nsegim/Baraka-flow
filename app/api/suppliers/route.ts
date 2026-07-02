@@ -1,24 +1,22 @@
 import { NextRequest, NextResponse } from "next/server"
-import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { CreateSupplierSchema } from "@/lib/validators"
+import { requireBranchContext, isBranchContext } from "@/lib/branch-auth"
+import { can, type Role } from "@/lib/permissions"
 
-// GET /api/suppliers
-export async function GET() {
+// GET /api/suppliers — all roles
+export async function GET(request: NextRequest) {
   try {
-    const session = await auth()
-    if (!session) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
+    const ctx = await requireBranchContext(request)
+    if (!isBranchContext(ctx)) return ctx
 
     const suppliers = await prisma.supplier.findMany({
-      where:   { businessId: session.user.businessId },
+      where:   { businessId: ctx.session.user.businessId },
       include: { _count: { select: { products: true } } },
       orderBy: { createdAt: "desc" },
     })
 
     return NextResponse.json(suppliers)
-
   } catch (error) {
     console.error(error)
     return NextResponse.json({ error: "Failed to fetch suppliers" }, { status: 500 })
@@ -28,25 +26,16 @@ export async function GET() {
 // POST /api/suppliers — OWNER and MANAGER only
 export async function POST(request: NextRequest) {
   try {
-    const session = await auth()
-    if (!session) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    const ctx = await requireBranchContext(request)
+    if (!isBranchContext(ctx)) return ctx
+
+    if (!can(ctx.session.user.role as Role, "supplier:create")) {
+      return NextResponse.json({ error: "You do not have permission to add suppliers" }, { status: 403 })
     }
 
-    if (!["OWNER", "MANAGER"].includes(session.user.role)) {
-      return NextResponse.json(
-        { error: "You do not have permission to add suppliers" },
-        { status: 403 }
-      )
-    }
-
-    const body   = await request.json()
-    const parsed = CreateSupplierSchema.safeParse(body)
+    const parsed = CreateSupplierSchema.safeParse(await request.json())
     if (!parsed.success) {
-      return NextResponse.json(
-        { error: parsed.error.issues[0].message },
-        { status: 400 }
-      )
+      return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 })
     }
 
     const supplier = await prisma.supplier.create({
@@ -55,13 +44,12 @@ export async function POST(request: NextRequest) {
         email:      parsed.data.email   ?? null,
         phone:      parsed.data.phone   ?? null,
         country:    parsed.data.country ?? null,
-        businessId: session.user.businessId,
+        businessId: ctx.session.user.businessId,
       },
       include: { _count: { select: { products: true } } },
     })
 
     return NextResponse.json(supplier, { status: 201 })
-
   } catch (error) {
     console.error(error)
     return NextResponse.json({ error: "Failed to create supplier" }, { status: 500 })

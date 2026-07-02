@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { UpdateCategorySchema } from "@/lib/validators"
+import { can, type Role } from "@/lib/permissions"
 
 // PATCH /api/categories/[id] — OWNER and MANAGER only
 export async function PATCH(
@@ -14,7 +15,7 @@ export async function PATCH(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    if (!["OWNER", "MANAGER"].includes(session.user.role)) {
+    if (!can(session.user.role as Role, "category:update")) {
       return NextResponse.json(
         { error: "You do not have permission to edit categories" },
         { status: 403 }
@@ -64,7 +65,7 @@ export async function DELETE(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    if (session.user.role !== "OWNER") {
+    if (!can(session.user.role as Role, "category:delete")) {
       return NextResponse.json(
         { error: "Only the account owner can delete categories" },
         { status: 403 }

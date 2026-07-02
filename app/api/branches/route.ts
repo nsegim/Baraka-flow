@@ -6,13 +6,14 @@ import { serialize } from "@/lib/serialize"
 import { createAuditLog } from "@/lib/audit"
 import { getIp } from "@/lib/rate-limit"
 import { checkPlanLimit } from "@/lib/plan-limits"
+import { can, type Role } from "@/lib/permissions"
 
 // GET /api/branches — list all branches for this business (OWNER only)
 export async function GET() {
   try {
     const session = await auth()
     if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    if (session.user.role !== "OWNER") {
+    if (!can(session.user.role as Role, "branch:create")) {
       return NextResponse.json({ error: "Only owners can manage branches" }, { status: 403 })
     }
 
@@ -38,7 +39,7 @@ export async function POST(request: NextRequest) {
   try {
     const session = await auth()
     if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    if (session.user.role !== "OWNER") {
+    if (!can(session.user.role as Role, "branch:create")) {
       return NextResponse.json({ error: "Only owners can create branches" }, { status: 403 })
     }
 

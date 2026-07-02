@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { requireBranchContext, isBranchContext, getWriteBranchId } from "@/lib/branch-auth"
+import { can, type Role } from "@/lib/permissions"
 
 interface CsvRow {
   name:        string
@@ -66,7 +67,7 @@ export async function POST(request: NextRequest) {
   try {
     const ctx = await requireBranchContext(request, { requireBranch: true })
     if (!isBranchContext(ctx)) return ctx
-    if (!["OWNER", "MANAGER"].includes(ctx.session.user.role)) {
+    if (!can(ctx.session.user.role as Role, "product:import")) {
       return NextResponse.json({ error: "Permission denied" }, { status: 403 })
     }
 

@@ -1,9 +1,10 @@
 "use client"
 
 import { useState } from "react"
-import Sidebar     from "./Sidebar"
-import Header      from "./Header"
-import LocaleSync  from "./LocaleSync"
+import Sidebar              from "./Sidebar"
+import Header               from "./Header"
+import LocaleSync           from "./LocaleSync"
+import SubscriptionBanner   from "./SubscriptionBanner"
 
 export default function DashboardShell({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -24,6 +25,7 @@ export default function DashboardShell({ children }: { children: React.ReactNode
 
       <div className="flex-1 flex flex-col min-w-0">
         <Header onMenuToggle={() => setSidebarOpen(o => !o)} />
+        <SubscriptionBanner />
         <main className="flex-1 p-4 md:p-6">
           {children}
         </main>

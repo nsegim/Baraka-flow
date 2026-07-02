@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
+import { can, type Role } from "@/lib/permissions"
 import { prisma } from "@/lib/prisma"
 import { serialize } from "@/lib/serialize"
 
@@ -10,7 +11,7 @@ export async function GET(request: NextRequest) {
     if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
     // Audit logs are sensitive — OWNER only
-    if (session.user.role !== "OWNER") {
+    if (!can(session.user.role as Role, "audit:read")) {
       return NextResponse.json({ error: "Only the account owner can view audit logs" }, { status: 403 })
     }
 

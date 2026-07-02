@@ -29,10 +29,10 @@ export default function BillingPage() {
 
   useEffect(() => {
     Promise.all([
-      fetch("/api/admin/plans").then(r => r.json()),
+      fetch("/api/plans").then(r => r.json()),
       fetch("/api/plan-usage").then(r => r.json()),
     ]).then(([plansData, usageData]) => {
-      setPlans(Array.isArray(plansData) ? plansData.filter((p: Plan) => p.isPublic && p.isActive) : [])
+      setPlans(Array.isArray(plansData) ? plansData : [])
       setCurrent(usageData)
       setLoading(false)
     }).catch(() => { setError("Failed to load plans"); setLoading(false) })

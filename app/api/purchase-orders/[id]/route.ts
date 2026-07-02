@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
+import { can, type Role } from "@/lib/permissions"
 import { prisma } from "@/lib/prisma"
 import { UpdatePurchaseOrderStatusSchema } from "@/lib/validators"
 import { serialize } from "@/lib/serialize"
@@ -45,7 +46,7 @@ export async function PATCH(
     const session = await auth()
     if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-    if (!["OWNER", "MANAGER"].includes(session.user.role)) {
+    if (!can(session.user.role as Role, "purchase-order:update")) {
       return NextResponse.json({ error: "Permission denied" }, { status: 403 })
     }
 
@@ -95,7 +96,7 @@ export async function DELETE(
     const session = await auth()
     if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-    if (session.user.role !== "OWNER") {
+    if (!can(session.user.role as Role, "purchase-order:update")) {
       return NextResponse.json({ error: "Only the account owner can delete purchase orders" }, { status: 403 })
     }
 

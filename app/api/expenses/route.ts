@@ -3,8 +3,8 @@ import { prisma } from "@/lib/prisma"
 import { CreateExpenseSchema } from "@/lib/validators"
 import { serialize } from "@/lib/serialize"
 import { createAuditLog } from "@/lib/audit"
-import { getIp } from "@/lib/rate-limit"
 import { requireBranchContext, isBranchContext, buildBranchWhere, getWriteBranchId } from "@/lib/branch-auth"
+import { can, type Role } from "@/lib/permissions"
 
 // GET /api/expenses — paginated, branch-scoped
 export async function GET(request: NextRequest) {
@@ -12,20 +12,18 @@ export async function GET(request: NextRequest) {
     const ctx = await requireBranchContext(request)
     if (!isBranchContext(ctx)) return ctx
 
-    const { searchParams } = request.nextUrl
-    const page  = Math.max(1, parseInt(searchParams.get("page")  ?? "1"))
-    const limit = Math.min(100, Math.max(1, parseInt(searchParams.get("limit") ?? "50")))
-    const skip  = (page - 1) * limit
-    const month = searchParams.get("month")
-
-    const category = searchParams.get("category")
+    const sp    = request.nextUrl.searchParams
+    const page  = Math.max(1, parseInt(sp.get("page")  ?? "1"))
+    const limit = Math.min(100, Math.max(1, parseInt(sp.get("limit") ?? "50")))
+    const month = sp.get("month")
+    const cat   = sp.get("category")
 
     const where: Record<string, unknown> = buildBranchWhere(ctx)
     if (month) {
       const [year, mon] = month.split("-").map(Number)
       where.date = { gte: new Date(year, mon - 1, 1), lt: new Date(year, mon, 1) }
     }
-    if (category) where.category = category
+    if (cat) where.category = cat
 
     const [expenses, total] = await prisma.$transaction([
       prisma.expense.findMany({
@@ -35,8 +33,8 @@ export async function GET(request: NextRequest) {
           branch:    { select: { name: true, code: true } },
         },
         orderBy: { date: "desc" },
-        skip,
-        take: limit,
+        skip:    (page - 1) * limit,
+        take:    limit,
       }),
       prisma.expense.count({ where }),
     ])
@@ -57,7 +55,7 @@ export async function POST(request: NextRequest) {
     const ctx = await requireBranchContext(request, { requireBranch: true })
     if (!isBranchContext(ctx)) return ctx
 
-    if (!["OWNER", "MANAGER"].includes(ctx.session.user.role)) {
+    if (!can(ctx.session.user.role as Role, "expense:create")) {
       return NextResponse.json({ error: "Permission denied" }, { status: 403 })
     }
 
@@ -66,8 +64,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Select a branch before adding an expense" }, { status: 400 })
     }
 
-    const body   = await request.json()
-    const parsed = CreateExpenseSchema.safeParse(body)
+    const parsed = CreateExpenseSchema.safeParse(await request.json())
     if (!parsed.success) {
       return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 })
     }
@@ -97,7 +94,6 @@ export async function POST(request: NextRequest) {
       entityType: "Expense",
       entityId:   expense.id,
       metadata:   { title: expense.title, amount: Number(expense.amount), category: expense.category },
-      ipAddress:  getIp(request),
     })
 
     return NextResponse.json(serialize(expense), { status: 201 })
