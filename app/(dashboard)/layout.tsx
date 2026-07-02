@@ -7,6 +7,11 @@ export default async function DashboardLayout({ children }: { children: React.Re
   const session = await auth()
   if (!session) redirect("/login")
 
+  // Platform/admin users have no businessId — send them to the admin panel
+  if (session.user.isPlatformUser || !session.user.businessId) {
+    redirect("/admin")
+  }
+
   // Check suspension on every dashboard request — catches users already logged in
   // when their business gets suspended by the super admin
   const business = await prisma.business.findUnique({
